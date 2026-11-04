@@ -1,5 +1,6 @@
 # Every pull request and push to main: commit messages follow Conventional Commits and carry Signed-off-by
-# (CONTRIBUTING.md). The rules are in .github/commitlint; commitlint is installed from its lockfile.
+# (CONTRIBUTING.md). The rules are in .github/commitlint; commitlint is installed from its lockfile. Merge commits
+# are skipped: GitHub makes and signs them, whatever their message says.
 
 name: commits
 
@@ -36,11 +37,17 @@ jobs:
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
         run: |
-          lint() { .github/commitlint/node_modules/.bin/commitlint --config .github/commitlint/commitlint.config.mjs "$@"; }
+          lint() { .github/commitlint/node_modules/.bin/commitlint --config .github/commitlint/commitlint.config.mjs; }
           if [ "$EVENT" = pull_request ]; then
-            lint --from "$BASE" --to "$HEAD"
+            range="$BASE..$HEAD"
           elif [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then
-            for c in $(git rev-list "$AFTER"); do git log -1 --format=%B "$c" | lint; done   # a new branch: all of it
+            range="$AFTER"              # a new branch: all of it
           else
-            lint --from "$BEFORE" --to "$AFTER"
+            range="$BEFORE..$AFTER"
           fi
+          status=0
+          for c in $(git rev-list --no-merges "$range"); do
+            echo "commit $c"
+            git log -1 --format=%B "$c" | lint || status=1
+          done
+          exit $status
