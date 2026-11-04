@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "description": "Commit message checks for CI (.github/workflows/commits.yml); installed with npm ci from the lockfile.",
+  "devDependencies": {
+    "@commitlint/cli": "21.2.4",
+    "@commitlint/config-conventional": "21.2.4"
+  }
+}

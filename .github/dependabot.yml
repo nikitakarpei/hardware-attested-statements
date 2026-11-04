@@ -1,0 +1,19 @@
+# Weekly update pull requests for the verifier's Go modules, the pinned Actions, and the tools CI installs.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /verifier
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /.github
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /.github/commitlint
+    schedule:
+      interval: weekly

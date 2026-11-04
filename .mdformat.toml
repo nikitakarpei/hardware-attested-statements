@@ -1,0 +1,5 @@
+# Markdown style for spec/, checked in CI (the spec job in .github/workflows/build.yml):
+#   mdformat --check --compact-tables spec   (with mdformat-gfm and mdformat-tables)
+# --compact-tables is a command-line option only. Without --check, the same command formats the files.
+wrap = 116
+number = true  # keep ordered lists numbered 1, 2, 3 in the source, so "step 1" cross-references read
