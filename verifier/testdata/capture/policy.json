@@ -1,8 +1,0 @@
-{ "policy": "hardware-attested-statement/policy/v0.1",
-  "timestampAuthorities": ["freetsa"],
-  "drandChains": ["quicknet"],
-  "predicateTypes": {
-    "https://github.com/nikitakarpei/hardware-attested-statements/blob/main/spec/predicates/http-response/v1.md": {
-      "trustedSigners": [{ "profile": "android", "package": "io.github.nikitakarpei.attestedwebcapture",
-                           "signingCertificates": ["d66a722561948c23fca5f90a758008dc4b2a11100db466e75e58d4f3ee4ffb99"] }],
-      "requireTimestamp": true, "requireStartedAfter": true } } }

@@ -20,7 +20,7 @@ import (
 
 const testSigner = "d66a722561948c23fca5f90a758008dc4b2a11100db466e75e58d4f3ee4ffb99"
 
-// policyParams build a test policy for the capture app's predicate type (and, in chain tests, more).
+// policyParams build a test policy for the test captures' predicate type (and, in chain tests, more).
 type policyParams struct {
 	signingCertificate  string
 	versionCodes        string // JSON array, or "" for any
@@ -34,7 +34,7 @@ type policyParams struct {
 }
 
 func defaultParams() policyParams {
-	return policyParams{signingCertificate: testSigner, versionCodes: "[16]", requireTimestamp: true, requireStartedAfter: true}
+	return policyParams{signingCertificate: testSigner, versionCodes: "[1]", requireTimestamp: true, requireStartedAfter: true}
 }
 
 func (p policyParams) policy(t *testing.T) *verifier.Policy {
@@ -45,9 +45,9 @@ func (p policyParams) policy(t *testing.T) *verifier.Policy {
 		if p.versionCodes != "" {
 			versions = `, "versionCodes": ` + p.versionCodes
 		}
-		types = append(types, fmt.Sprintf(`%q: { "trustedSigners": [{ "profile": "android", "package": "io.github.nikitakarpei.attestedwebcapture",
+		types = append(types, fmt.Sprintf(`%q: { "trustedSigners": [{ "profile": "android", "package": %q,
 		  "signingCertificates": [%q]%s }], "requireTimestamp": %v, "requireStartedAfter": %v }`,
-			httpresponse.PredicateType, p.signingCertificate, versions, p.requireTimestamp, p.requireStartedAfter))
+			httpresponse.PredicateType, capturePackage, p.signingCertificate, versions, p.requireTimestamp, p.requireStartedAfter))
 	}
 	if p.extraTypes != "" {
 		types = append(types, p.extraTypes)
@@ -157,7 +157,7 @@ func TestCapturesVerify(t *testing.T) {
 		if dev.KeyStorage != android.StrongBox || dev.Provisioning != android.RemotelyProvisioned || dev.OS != "grapheneos" {
 			t.Errorf("%s: device %+v", name, dev)
 		}
-		if app.Package != "io.github.nikitakarpei.attestedwebcapture" || app.VersionCode != 1 {
+		if app.Package != capturePackage || app.VersionCode != 1 {
 			t.Errorf("%s: app %+v", name, app)
 		}
 		_, b, _ := verifier.ParseHTTPResponse(readCapture(t, name))
