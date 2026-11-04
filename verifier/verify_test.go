@@ -45,7 +45,7 @@ func (p policyParams) policy(t *testing.T) *verifier.Policy {
 		if p.versionCodes != "" {
 			versions = `, "versionCodes": ` + p.versionCodes
 		}
-		types = append(types, fmt.Sprintf(`%q: { "trustedSigners": [{ "profile": "android", "package": "org.signedcapture.headless",
+		types = append(types, fmt.Sprintf(`%q: { "trustedSigners": [{ "profile": "android", "package": "io.github.nikitakarpei.attestedwebcapture",
 		  "signingCertificates": [%q]%s }], "requireTimestamp": %v, "requireStartedAfter": %v }`,
 			httpresponse.PredicateType, p.signingCertificate, versions, p.requireTimestamp, p.requireStartedAfter))
 	}
@@ -157,7 +157,7 @@ func TestCapturesVerify(t *testing.T) {
 		if dev.KeyStorage != android.StrongBox || dev.Provisioning != android.RemotelyProvisioned || dev.OS != "grapheneos" {
 			t.Errorf("%s: device %+v", name, dev)
 		}
-		if app.Package != "org.signedcapture.headless" || app.VersionCode != 16 {
+		if app.Package != "io.github.nikitakarpei.attestedwebcapture" || app.VersionCode != 1 {
 			t.Errorf("%s: app %+v", name, app)
 		}
 		_, b, _ := verifier.ParseHTTPResponse(readCapture(t, name))

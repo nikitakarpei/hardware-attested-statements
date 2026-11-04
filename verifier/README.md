@@ -25,10 +25,10 @@ A `Result` says between which times the statement was signed, and its `Key` what
 Android, an `android.App` (package, versionCode, signing certificates) and an `android.Device` (key storage,
 provisioning, OS, patch levels, key creation time). Its `Inputs` are the statement's listed inputs, each with its
 own `Result` if its bundle was presented, whether it's verified, and if not, why: provenance holds only along
-verified inputs (`UnverifiedInputs` lists them all). Profiles implement
-`verifier.Profile`; `profiles/android` is the first. What a statement *means* is up to its predicate type:
-`predicates/httpresponse` handles `urn:signed-capture:http-response:v1`
-([spec](../spec/predicates/http-response.md)), including checking a saved response against it.
+verified inputs (`UnverifiedInputs` lists them all). Profiles implement `verifier.Profile`; `profiles/android` is
+the first. What a statement *means* is up to its predicate type: `predicates/httpresponse` handles the
+[`http-response` predicate type](../spec/predicates/http-response/v1.md), including checking a saved response
+against it.
 
-Tests run offline: `go test ./...`. `profiles/android/testdata/google` is Google's corpus of real attestations (Apache-2.0, see
-its README); `testdata/capture` holds saved responses signed under a test attestation root.
+Tests run offline: `go test ./...`. `profiles/android/testdata/google` is Google's corpus of real attestations
+(Apache-2.0, see its README); `testdata/capture` holds saved responses signed under a test attestation root.

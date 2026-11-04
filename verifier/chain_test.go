@@ -510,7 +510,7 @@ func TestChainExtensionForgery(t *testing.T) {
 	tmpl := &x509.Certificate{SerialNumber: big.NewInt(9), Subject: pkix.Name{CommonName: "x"},
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
 		ExtraExtensions: []pkix.Extension{{Id: android.OIDKeyAttestation,
-			Value: keyDescription("org.signedcapture.headless", 16, victimSigner, set(integer(2)))}}}
+			Value: keyDescription("io.github.nikitakarpei.attestedwebcapture", 16, victimSigner, set(integer(2)))}}}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, k.leaf, &forgedKey.PublicKey, k.key)
 	if err != nil {
 		t.Fatal(err)
@@ -557,7 +557,7 @@ func TestTimestampTransplant(t *testing.T) {
 	}
 	victimSigner, _ := hex.DecodeString(testSigner)
 	k := newFakeKey(t, fakeOptions{publicKey: q,
-		extension: keyDescription("org.signedcapture.headless", 16, victimSigner, set(integer(2)))})
+		extension: keyDescription("io.github.nikitakarpei.attestedwebcapture", 16, victimSigner, set(integer(2)))})
 	trust.Roots = append(trust.Roots, k.root)
 	b := bundleWith(t, forged, sig, k.chain)
 	b.VerificationMaterial.Timestamp = victim.VerificationMaterial.Timestamp

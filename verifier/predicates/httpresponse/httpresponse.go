@@ -1,6 +1,7 @@
-// Package httpresponse is the predicate of the Signed Capture Proxy: an HTTP response fetched over HTTPS. The
-// statement's subject "body" is SHA-256 of the response body exactly as received, before any content decoding
-// (the proxy asks for "Accept-Encoding: identity", but a server may still encode it).
+// Package httpresponse is the http-response predicate type, v1 (spec/predicates/http-response/v1.md): an HTTP
+// response fetched over HTTPS. The statement's subject "body" is SHA-256 of the response body exactly as received,
+// before any content decoding (a capturing program may ask for "Accept-Encoding: identity", but a server may still
+// encode it).
 package httpresponse
 
 import (
@@ -15,7 +16,7 @@ import (
 	"github.com/nikitakarpei/hardware-attested-statements/verifier"
 )
 
-const PredicateType = "urn:signed-capture:http-response:v1"
+const PredicateType = "https://github.com/nikitakarpei/hardware-attested-statements/blob/main/spec/predicates/http-response/v1.md"
 
 // Predicate describes the exchange.
 type Predicate struct {
