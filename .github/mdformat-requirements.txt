@@ -2,8 +2,9 @@
 # Regenerate: pip download --only-binary=:all: mdformat==… mdformat-gfm==… mdformat-tables==…, then hash each wheel.
 markdown-it-py==3.0.0 \
     --hash=sha256:355216845c60bd96232cd8d8c40e8f9765cc86f46880e43a8fd22dc1a1a8cab1
-mdformat==0.7.22 \
-    --hash=sha256:61122637c9e1d9be1329054f3fa216559f0d1f722b7919b060a8c2a4ae1850e5
+mdformat==1.0.0 \
+    --hash=sha256:4954045fcae797c29f86d4ad879e43bb151fa55dbaf74ac6eaeacf1d45bb3928 \
+    --hash=sha256:bca015d65a1d063a02e885a91daee303057bc7829c2cd37b2075a50dbb65944b
 mdformat-gfm==1.0.0 \
     --hash=sha256:7305a50efd2a140d7c83505b58e3ac5df2b09e293f9bbe72f6c7bee8c678b005
 mdformat-tables==1.0.0 \
