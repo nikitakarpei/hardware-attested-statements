@@ -13,6 +13,16 @@ updates:
     directory: /.github
     schedule:
       interval: weekly
+    groups:
+      mdformat:            # the formatter and its plugins only install together
+        patterns: ["*"]
+    ignore:
+      # No mdformat-gfm release supports mdformat 1 yet, and markdown-it-py 4 needs mdformat 1. Remove these once
+      # mdformat-gfm supports mdformat 1.
+      - dependency-name: mdformat
+        versions: [">=1.0.0"]
+      - dependency-name: markdown-it-py
+        versions: [">=4.0.0"]
   - package-ecosystem: npm
     directory: /.github/commitlint
     schedule:
