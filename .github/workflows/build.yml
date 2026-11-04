@@ -1,0 +1,141 @@
+# Every push and pull request: check the spec's formatting, and build, check, test and fuzz the verifier, and
+# check its binaries are reproducible. A v* tag also publishes a release with the verifier for each platform,
+# checksums and a signed build-provenance attestation.
+# Everything is pinned (actions by commit, Python tools by hash); untrusted values reach scripts only through
+# environment variables.
+
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verifier:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: verifier
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: verifier/go.mod
+          cache-dependency-path: verifier/go.sum
+
+      - name: Format, vet, test
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test ./...
+
+      - name: Fuzz the parsers (20 s each)
+        run: |
+          go test -run '^$' -fuzz '^FuzzParseKeyDescription$' -fuzztime 20s ./profiles/android
+          for f in FuzzParseHTTPResponse FuzzParseBundle; do
+            go test -run '^$' -fuzz "^$f\$" -fuzztime 20s .
+          done
+
+      - name: Check for known vulnerabilities in what the code calls
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
+      # Built twice, the second time from a clean clone in another directory; the binaries must match. Named after
+      # the tag on a release, "dev" otherwise.
+      - name: Build the command-line tool for each platform
+        env:
+          CGO_ENABLED: "0"
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version=dev
+          [ "$REF_TYPE" = tag ] && version=${REF_NAME#v}
+          git clone --quiet --no-hardlinks .. "$RUNNER_TEMP/second"
+          mkdir -p ../dist
+          for target in linux/amd64 linux/arm64 darwin/arm64 windows/amd64; do
+            os=${target%/*} arch=${target#*/} ext=""
+            [ "$os" = windows ] && ext=.exe
+            name="attested-verify-$version-$os-$arch$ext"
+            GOOS=$os GOARCH=$arch go build -trimpath -buildvcs=false -o "../dist/$name" ./cmd/attested-verify
+            (cd "$RUNNER_TEMP/second/verifier" &&
+              GOOS=$os GOARCH=$arch go build -trimpath -buildvcs=false -o "$RUNNER_TEMP/$name" ./cmd/attested-verify)
+            cmp "../dist/$name" "$RUNNER_TEMP/$name"
+          done
+          sha256sum ../dist/*
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verifier
+          path: dist/
+          if-no-files-found: error
+
+  spec:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The style is in .mdformat.toml; mdformat also checks that formatting doesn't change the rendered page.
+      - name: Check the spec's Markdown formatting
+        run: |
+          python3 -m venv "$RUNNER_TEMP/mdformat"
+          "$RUNNER_TEMP/mdformat/bin/pip" install --quiet --require-hashes -r .github/mdformat-requirements.txt
+          "$RUNNER_TEMP/mdformat/bin/mdformat" --check --compact-tables spec
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [verifier, spec]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release    # required reviewers approve each release (see README)
+    permissions:
+      contents: write       # create the release
+      id-token: write       # sign the provenance attestation (Sigstore)
+      attestations: write   # store it
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: verifier
+          path: dist
+
+      - name: Checksums
+        run: (cd dist && sha256sum ./attested-verify-* > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Attest build provenance
+        id: provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/attested-verify-*
+
+      # The attestation also goes in the release, so it can be checked without GitHub's API (and so tools such as
+      # OpenSSF Scorecard see the release is signed).
+      - name: Collect the attestation and the license
+        env:
+          BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cp "$BUNDLE" "dist/attested-verify-${TAG#v}.sigstore.json"
+          cp LICENSE dist/LICENSE
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" dist/attested-verify-* dist/SHA256SUMS dist/LICENSE --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" --notes-file <(sed -nE "/^## ${TAG#v}( |\$)/,/^## /{/^## /!p}" CHANGELOG.md; echo; \
+              echo "Built by GitHub Actions from this tag. Check provenance with: gh attestation verify <file> --repo $GITHUB_REPOSITORY")
