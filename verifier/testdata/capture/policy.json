@@ -1,8 +1,0 @@
-{ "policy": "hardware-attested-statement/policy/v0.1",
-  "timestampAuthorities": ["freetsa"],
-  "drandChains": ["quicknet"],
-  "predicateTypes": {
-    "urn:signed-capture:http-response:v1": {
-      "trustedSigners": [{ "profile": "android", "package": "org.signedcapture.headless",
-                           "signingCertificates": ["d66a722561948c23fca5f90a758008dc4b2a11100db466e75e58d4f3ee4ffb99"] }],
-      "requireTimestamp": true, "requireStartedAfter": true } } }

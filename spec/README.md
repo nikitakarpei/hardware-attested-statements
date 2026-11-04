@@ -340,8 +340,8 @@ more than one `Content-Encoding` field line, and MUST compare values byte for by
 trailing spaces and tabs.
 
 The status code and other headers aren't covered (a saved 206 response could be relabelled 200): a predicate type
-that needs them MUST define further checks, as `urn:signed-capture:http-response:v1` does
-([predicates/http-response.md](predicates/http-response.md)).
+that needs them MUST define further checks, as the [`http-response` predicate type](predicates/http-response/v1.md)
+does.
 
 | Header | Value |
 | -- | -- |

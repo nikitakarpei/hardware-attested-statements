@@ -77,8 +77,13 @@ func enumerated(n int64) []byte { return tlv(0, 10, false, integer(n)[2:]) }
 // keyDescription is an attestation of a StrongBox EC P-256 signing key for pkg, signed by signer, on a locked
 // device running its stock OS; extra entries go into the hardware-enforced list.
 func keyDescription(pkg string, versionCode int64, signer []byte, purposes []byte, extra ...[]byte) []byte {
-	appID := seq(set(seq(octets([]byte(pkg)), integer(versionCode))), set(octets(signer)))
 	rot := seq(octets(make([]byte, 32)), tlv(0, 1, false, []byte{0xff}), enumerated(0), octets(make([]byte, 32)))
+	return keyDescriptionWithRoot(pkg, versionCode, signer, purposes, rot, extra...)
+}
+
+// keyDescriptionWithRoot is keyDescription with the given root of trust (boot key, lock and boot state).
+func keyDescriptionWithRoot(pkg string, versionCode int64, signer []byte, purposes []byte, rot []byte, extra ...[]byte) []byte {
+	appID := seq(set(seq(octets([]byte(pkg)), integer(versionCode))), set(octets(signer)))
 	hw := cat(explicit(1, purposes), explicit(2, integer(3)), explicit(5, set(integer(4))), explicit(10, integer(1)))
 	hw = cat(hw, cat(extra...), explicit(702, integer(0)), explicit(704, rot), explicit(705, integer(160000)),
 		explicit(706, integer(202610)), explicit(718, integer(20261005)), explicit(719, integer(20261005)))
@@ -510,7 +515,7 @@ func TestChainExtensionForgery(t *testing.T) {
 	tmpl := &x509.Certificate{SerialNumber: big.NewInt(9), Subject: pkix.Name{CommonName: "x"},
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
 		ExtraExtensions: []pkix.Extension{{Id: android.OIDKeyAttestation,
-			Value: keyDescription("org.signedcapture.headless", 16, victimSigner, set(integer(2)))}}}
+			Value: keyDescription(capturePackage, 16, victimSigner, set(integer(2)))}}}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, k.leaf, &forgedKey.PublicKey, k.key)
 	if err != nil {
 		t.Fatal(err)
@@ -557,7 +562,7 @@ func TestTimestampTransplant(t *testing.T) {
 	}
 	victimSigner, _ := hex.DecodeString(testSigner)
 	k := newFakeKey(t, fakeOptions{publicKey: q,
-		extension: keyDescription("org.signedcapture.headless", 16, victimSigner, set(integer(2)))})
+		extension: keyDescription(capturePackage, 16, victimSigner, set(integer(2)))})
 	trust.Roots = append(trust.Roots, k.root)
 	b := bundleWith(t, forged, sig, k.chain)
 	b.VerificationMaterial.Timestamp = victim.VerificationMaterial.Timestamp
