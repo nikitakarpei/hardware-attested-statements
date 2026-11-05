@@ -3,6 +3,10 @@
 Each release has a section `## <version> (<date>)`, used as its release notes. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+The `nitro` profile, for programs in AWS Nitro Enclaves (spec only; the verifier doesn't support it yet).
+
 ## 0.1.0 (2026-11-05)
 
 First release: the format at version v0.1 (a draft, which can still change incompatibly), with the Android profile
