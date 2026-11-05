@@ -294,7 +294,12 @@ Settled by research since the first review:
   https://docs.aws.amazon.com/enclaves/latest/user/set-up-attestation.html,
   https://github.com/aws/aws-nitro-enclaves-nsm-api/blob/main/docs/attestation_process.md,
   https://aws.amazon.com/blogs/compute/validating-attestation-documents-produced-by-aws-nitro-enclaves, `PCR8`
-  computation: https://github.com/aws/aws-nitro-enclaves-cli/issues/446
+  computation: https://github.com/aws/aws-nitro-enclaves-cli/issues/446; image format and its signature:
+  https://github.com/aws/aws-nitro-enclaves-image-format; Trail of Bits:
+  https://blog.trailofbits.com/2024/02/16/a-few-notes-on-aws-nitro-enclaves-images-and-attestation/; KMS condition
+  keys: https://docs.aws.amazon.com/kms/latest/developerguide/conditions-nitro-enclaves.html,
+  https://docs.aws.amazon.com/kms/latest/developerguide/conditions-nitro-tpm.html; NitroTPM attestation launch:
+  https://aws.amazon.com/about-aws/whats-new/2025/09/aws-announces-ec2-instance-attestation
 - NitroTPM: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/nitrotpm-attestation-document-validate.html,
   https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/nitrotpm-attestation-document-content.html
 - AWS SEV-SNP: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/snp-attestation.html,
