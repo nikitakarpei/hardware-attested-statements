@@ -48,8 +48,8 @@ So:
 
 Nitro also fits this format simply: the attestation document has a `public_key` field for the signing key itself,
 the whole certificate chain is inside the signed payload, and there are no lists. Its costs: no revocation, leaf
-certificates that are short-lived (about 3 hours, *observed*), so bundles need a time-stamp within that time, and a
-strict CBOR and COSE parser.
+certificates that are short-lived (3 hours), so a bundle that must outlive them needs a time-stamp within that time,
+and a strict CBOR and COSE parser.
 
 ## Prior art
 
@@ -84,7 +84,7 @@ What this proposal takes from them:
   document being treated as matching.
 - **The attestation itself as the long-lived evidence**, not a service's token, so verification needs no online
   service.
-- **Measurements, not a vendor key, name the program** (see open question 2 on `PCR8`). Tinfoil and Oak publish
+- **Measurements, not a vendor key, name the program** (see section Policy on `PCR8`). Tinfoil and Oak publish
   measurements as in-toto statements; a later version could accept measurements endorsed that way.
 - **The image is the boundary.** In every TEE, any code inside it can ask for an attestation with values it chooses;
   dstack's `GetQuote`, for example, takes caller-chosen report data. So the image, not the verifier, must make sure
@@ -110,10 +110,10 @@ For each key, the program requests attestation documents from the NSM with:
   version;
 - no `nonce`.
 
-A document's certificate is short-lived (about 3 hours, *observed*), and a bundle's evidence MUST be valid at its
-upper bound (core spec section 4). So the program SHOULD request a new document for its key at least every hour, put
-the newest one in each bundle, and have its statements time-stamped promptly; a bundle without a time-stamp stops
-verifying when its document's certificate expires.
+A document's certificate is short-lived (3 hours in every real document seen; AWS doesn't document it), and a
+bundle's evidence MUST be valid at its upper bound (core spec section 4). So the program SHOULD request a new
+document for its key at least every hour, put the newest one in each bundle, and have its statements time-stamped
+promptly; a bundle without a time-stamp stops verifying when its document's certificate expires.
 
 The bundle's `key` is:
 
@@ -131,26 +131,32 @@ can turn an ECDSA signature into another valid one.
 
 A verifier MUST reject the key unless:
 
-1. **The COSE_Sign1 structure** is a CBOR array of four items: a protected header of exactly the bytes `a1 01 38 22`
-   (`{1: -35}`, ES384), an empty unprotected header map, the payload as a byte string, and a 96-byte signature.
-   Whether the NSM's output carries CBOR tag 18 is to be fixed against real documents before acceptance.
-2. **The CBOR** is well-formed and in the subset this profile allows (definite lengths, shortest-form integers, no
-   duplicate map keys, no tags inside the payload); anything else is rejected, not interpreted.
-3. **The document** is a map with exactly these keys, of these types: `module_id` (non-empty text), `timestamp`
-   (unsigned integer, milliseconds since the Unix epoch, above 0), `digest` (the text `SHA384`), `pcrs` (a map of 1
-   to 32 entries, from integers 0–31 to 48-byte strings), `certificate` (byte string), `cabundle` (array of at least
-   one byte string), and `public_key`, `user_data` and `nonce`, each a byte string or null. A document with
-   `nitrotpm_pcrs`, or any other key, is rejected: NitroTPM documents, which the parent EC2 instance can request
-   with any fields, chain to the same root.
-4. **The chain**: `cabundle[0]` is AWS's Nitro Enclaves root (appendix); `certificate` is signed by the last element
+1. **The COSE_Sign1 structure** is an untagged CBOR array of four items: a protected header of exactly the bytes
+   `a1 01 38 22` (`{1: -35}`, ES384), an empty unprotected header map, the payload as a byte string, and a 96-byte
+   signature.
+2. **The CBOR** is well-formed and in the subset this profile allows (shortest-form integers, no duplicate map keys,
+   no tags inside the payload); anything else is rejected, not interpreted. Maps and strings MAY have indefinite
+   length: AWS changed the payload map from definite to indefinite length between 2024-09 and 2025-09, without
+   notice.
+3. **The document** is a map with exactly these keys, of these types: `module_id` (text), `timestamp` (unsigned
+   integer, milliseconds since the Unix epoch, above 0), `digest` (the text `SHA384`), `pcrs` (a map of 1 to 32
+   entries, from integers 0–31 to 48-byte strings), `certificate` (byte string), `cabundle` (array of at least one
+   byte string), and `public_key`, `user_data` and `nonce`, each a byte string or null.
+4. **An enclave's document**, not a NitroTPM one. The parent EC2 instance can request a NitroTPM document with any
+   fields, and it chains to the same root, through the same kind of certificates. So: `module_id` MUST match `i-`
+   followed by 8 to 17 lowercase hex digits, `-enc` and 16 lowercase hex digits (NitroTPM's has `-tpm`); the
+   document MUST NOT have `nitrotpm_pcrs`, which NitroTPM documents have instead of `pcrs`; and the subject of
+   `certificate` MUST be exactly one common name: `module_id`, a dot, a region name (lowercase letters, digits and
+   hyphens), and `.aws`.
+5. **The chain**: `cabundle[0]` is AWS's Nitro Enclaves root (appendix); `certificate` is signed by the last element
    of `cabundle`, each element by the one before it. Each certificate is strict DER, with an ECDSA P-384 key, signed
    with ECDSA and SHA-384.
-5. **The signature**: the COSE signature verifies, with `certificate`'s key, over the COSE `Sig_structure`
+6. **The signature**: the COSE signature verifies, with `certificate`'s key, over the COSE `Sig_structure`
    (`["Signature1", protected, h'', payload]`), as ECDSA P-384 with SHA-384, `r ‖ s` as 48-byte big-endian integers.
-6. **The key**: `user_data` is exactly the challenge; `public_key` is a DER SubjectPublicKeyInfo of an uncompressed
+7. **The key**: `user_data` is exactly the challenge; `public_key` is a DER SubjectPublicKeyInfo of an uncompressed
    P-256 point; `nonce` is null or absent.
-7. **Not debug**: `PCR0`, `PCR1` and `PCR2` are present and not all zero bytes.
-8. **The signer**: the PCRs match a policy entry (section Policy).
+8. **Not debug**: `PCR0`, `PCR1` and `PCR2` are present and not all zero bytes.
+9. **The signer**: the PCRs match a policy entry (section Policy).
 
 The evidence is valid while every certificate of the chain is valid. `timestamp` MUST be within the validity of
 `certificate`; it is AWS's time of the document, and is reported, but bounds nothing, since the key may have signed
@@ -169,8 +175,16 @@ A `trustedSigners` entry names an enclave image by its PCRs, as lowercase hex (4
 
 `pcrs` MUST name `0`, `1` and `2`, and MAY name others (for example `3`, the parent instance's IAM role, or `8`, the
 image's signing certificate). Every PCR named MUST be present in the document and equal; a missing one is a
-mismatch. A program has an entry for each release; producers SHOULD build reproducibly and publish the expected PCRs
-with their source.
+mismatch. `PCR0` alone isn't enough: it hashes the kernel, command line and ramdisks concatenated, without their
+boundaries, so `PCR1` and `PCR2` fix how the image is cut.
+
+`PCR8` alone (an image's signing certificate, `SHA-384(48 zero bytes ‖ SHA-384(DER certificate))`) isn't accepted
+either. The evidence suggests that the Nitro hypervisor checks an image's signature at launch: the parent instance
+passes it no measurements, `nitro-cli` doesn't compare the signed value with `PCR0`, AWS's image format says it "is
+currently verified against PCR0", and Trail of Bits found the hypervisor rejecting modified signed images. But AWS
+doesn't state it, its parser is closed, and even if checked, `PCR8` names a key without rollback protection: every
+image it ever signed, however old, would pass, and the signature covers only `PCR0`. A program has an entry for each
+release; producers SHOULD build reproducibly and publish the expected PCRs with their source.
 
 The profile has no settings: `profiles.nitro`, if given, MUST be `{}`.
 
@@ -246,8 +260,11 @@ A package `verifier/profiles/nitro`, with no new dependency:
 `verifier.New` checks every registered profile's settings even for policies that don't use it; with no settings
 (`{}` or absent) this profile passes, so Android-only policies keep loading.
 
-Tests: real attestation documents (to be found under a license that allows them, for example in AWS's or others'
-open-source test data), checked with a fake clock at their time; and documents made under a test root for each
+Tests: real attestation documents, checked with a fake clock at their time; every one MUST pass, which also checks
+that the CBOR subset matches what the NSM emits. Licensed samples exist: enclave documents in
+aws-samples/aws-iot-validate-enclave-attestation (MIT-0) and evervault/attestation-doc-validation (Apache-2.0), and
+NitroTPM documents, for the rejection test, in EternisAI/attestation-server (Apache-2.0) and
+aws-samples/sample-mpc-biomodel-ec2-instance-attestation (MIT-0). And documents made under a test root for each
 rejection: wrong protected header, extra or missing keys, NitroTPM documents, a missing named PCR, zero PCRs, a
 wrong challenge, a key that isn't P-256, a broken chain.
 
@@ -255,17 +272,21 @@ wrong challenge, a key that isn't P-256, a broken chain.
 
 1. **Where this lives.** CONTRIBUTING asks for an issue before changing what verifies; this file could become that
    issue.
-2. **`PCR8`.** It measures the image's signing certificate, and would name a program across releases as Android's
-   signing certificate does. But AWS doesn't document whether the Nitro hypervisor verifies the image's signature at
-   launch, or only `nitro-cli` on the untrusted parent instance does. If only the latter, anyone could attach a
-   public signing certificate to another image, and `PCR8` alone would name nothing. Until AWS confirms the former,
-   entries must name `PCR0`–`PCR2`.
-3. **NitroTPM documents.** Is the field name (`pcrs` against `nitrotpm_pcrs`) the only difference, or do the leaf
-   certificates differ too? The profile should reject NitroTPM documents by more than one property if it can.
-4. **Unknown document keys.** Rejecting them is strict, but if AWS adds a field, all new documents stop verifying.
-   Ignoring them risks accepting a document whose meaning changed.
-5. **Short-lived certificates.** Should the profile require a time-stamp (as if `requireTimestamp` were set), since
-   without one a bundle verifies for about 3 hours?
+2. **Other AWS partitions.** GovCloud and China use other partitions, whose roots and names weren't checked; v0.1
+   would accept only AWS_NitroEnclaves_Root-G1.
+
+Settled by research since the first review:
+
+- **`PCR8`**: not accepted alone (section Policy).
+- **NitroTPM documents**: rejected by three properties, two in the signed payload and one in the certificate
+  (verification step 4). This was checked on 4 real NitroTPM documents and 10 real enclave documents from 2021-03 to
+  2026-09; certificate extensions, intermediates and algorithms are identical between the two.
+- **Unknown document keys** are rejected. The enclave document's fields haven't changed since NSM API v0.1
+  (2020-08); when AWS launched NitroTPM attestation (2025-09-23), it made a new kind of document with a new key,
+  `nitrotpm_pcrs`, rather than change this one. The one undocumented change seen, an indefinite-length map, changed
+  the encoding, not the fields, and step 2 allows it.
+- **Time-stamps** stay optional, as on Android (whose bundles without one verify for about two weeks): a policy that
+  needs bundles to outlive their certificate sets `requireTimestamp`.
 
 ## Sources
 
