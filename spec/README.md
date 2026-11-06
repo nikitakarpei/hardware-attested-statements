@@ -17,7 +17,7 @@ This document is the core, the same for every kind of hardware. How a kind of ha
 | Profile | Document |
 | -- | -- |
 | `android` | [profiles/android.md](profiles/android.md): Android key attestation (StrongBox or TEE) |
-| `nitro` | [profiles/nitro.md](profiles/nitro.md): AWS Nitro Enclaves attestation |
+| `awsnitro` | [profiles/awsnitro.md](profiles/awsnitro.md): AWS Nitro Enclaves attestation |
 
 It reuses existing standards where they fit, unchanged:
 
@@ -379,23 +379,23 @@ through a proxy for an `http://` URL there is no `CONNECT` preamble).
 A verified bundle is as good as what the verifier trusts:
 
 - **the hardware and its vendor's attestation roots and revocation** (for Android: Google's roots and revocation
-  list; for Nitro: AWS's root, and the Nitro hypervisor, which measures the enclave image and signs its documents),
-  to attest only keys that live in the hardware (or in the isolated memory the profile names), with true statements
-  about the device, and to revoke devices found compromised. Some statements come from software the hardware trusts
-  rather than checks: on Android, the app's identity is what the OS told the hardware when the key was created, and
-  the boot state is what the device's bootloader told it;
+  list; for AWS Nitro Enclaves: AWS's root, and the Nitro hypervisor, which measures the enclave image and signs its
+  documents), to attest only keys that live in the hardware (or in the isolated memory the profile names), with true
+  statements about the device, and to revoke devices found compromised. Some statements come from software the
+  hardware trusts rather than checks: on Android, the app's identity is what the OS told the hardware when the key
+  was created, and the boot state is what the device's bootloader told it;
 - **the weakest device model a policy accepts**, to have a boot chain that holds: a device whose boot chain is weak
   (for example its vendor's boot keys are public, or its chip can be made to skip checking the bootloader) can, in
   an attacker's hands, attest anything. Revocation lists revoke leaked or faulty attestation keys, not device models
   with weak boot chains, so such a model stays a way to forge for as long as a policy accepts it: evidence is as
   good as the weakest device a policy accepts;
-- **the program**, identified by the profile (for Android: an app's package and signing certificate; for Nitro: the
-  enclave image's measurements), to sign only true statements. Whoever holds its signing key can publish a program
-  that signs anything; a trusted signing certificate MUST therefore never sign debuggable or other test builds. A
-  key that a program generates in isolated memory, rather than in the hardware, is as safe as the program's whole
-  image, including every input it reads that isn't measured;
-- **the physical security of the hosts**, where the hardware can be attacked through its memory bus (for Nitro:
-  AWS's data centres);
+- **the program**, identified by the profile (for Android: an app's package and signing certificate; for AWS Nitro
+  Enclaves: the enclave image's measurements), to sign only true statements. Whoever holds its signing key can
+  publish a program that signs anything; a trusted signing certificate MUST therefore never sign debuggable or other
+  test builds. A key that a program generates in isolated memory, rather than in the hardware, is as safe as the
+  program's whole image, including every input it reads that isn't measured;
+- **the physical security of the hosts**, where the hardware can be attacked through its memory bus (for AWS Nitro
+  Enclaves: AWS's data centres);
 - **the device or platform state** as attested: a device that is exploited after its key was attested can sign
   anything until its evidence expires or is revoked;
 - **the time-stamp authorities**, for upper bounds, to state the true time (within its accuracy) in every token they

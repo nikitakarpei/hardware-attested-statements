@@ -1,4 +1,4 @@
-# Nitro profile, v0.1 (draft)
+# AWS Nitro profile, v0.1 (draft)
 
 A profile of [Hardware-Attested Statements](../README.md) for programs running in AWS Nitro Enclaves: the program
 generates its signing key inside an enclave, an isolated virtual machine whose memory its parent EC2 instance can't
@@ -18,7 +18,7 @@ in debug mode.
 For its key, the program requests attestation documents from the NSM with:
 
 - `public_key`: the signing key, as a DER SubjectPublicKeyInfo (id-ecPublicKey, prime256v1, uncompressed point);
-- `user_data`: the ASCII bytes `hardware-attested-statement/v0.1/nitro/key`;
+- `user_data`: the ASCII bytes `hardware-attested-statement/v0.1/awsnitro/key`;
 - no `nonce`.
 
 The `user_data` binds the key to this profile and version: verifiers of other profiles or versions reject it.
@@ -30,7 +30,7 @@ in each bundle, and have statements that are kept time-stamped while it is valid
 The bundle's `key` is:
 
 ```json
-{ "profile": "nitro", "attestationDocument": "…" }
+{ "profile": "awsnitro", "attestationDocument": "…" }
 ```
 
 `attestationDocument`: the COSE_Sign1 structure the NSM returned, exactly as returned.
@@ -65,7 +65,7 @@ A verifier MUST reject the key unless:
 5. **The signature** over the COSE `Sig_structure` (`["Signature1", protected header, empty byte string, payload]`)
    verifies with `certificate`'s key, as ECDSA P-384 with SHA-384, the signature being `r ‖ s` as 48-byte big-endian
    integers.
-6. **The key**: `user_data` is exactly `hardware-attested-statement/v0.1/nitro/key`; `public_key` is a strict DER
+6. **The key**: `user_data` is exactly `hardware-attested-statement/v0.1/awsnitro/key`; `public_key` is a strict DER
    SubjectPublicKeyInfo of an uncompressed P-256 point; `nonce` is `null` or absent.
 7. **Not debug**: `pcrs` has entries 0, 1 and 2, and none of them is all zero bytes (an enclave run in debug mode
    reports all-zero PCRs).
@@ -87,7 +87,7 @@ lists.
 A `trustedSigners` entry names an enclave image by its PCRs, as lowercase hex (48 bytes each):
 
 ```json
-{ "profile": "nitro", "pcrs": { "0": "…", "1": "…", "2": "…" } }
+{ "profile": "awsnitro", "pcrs": { "0": "…", "1": "…", "2": "…" } }
 ```
 
 `pcrs` MUST name PCRs 0, 1 and 2 (the image, its kernel and boot ramdisk, and its application), and MAY name others
@@ -102,7 +102,7 @@ ever signed, however old), and AWS doesn't document that the enclave's launch ch
 A program has an entry for each release. Its producer SHOULD build the image reproducibly and publish the expected
 PCRs with its source, so that others can check what the entry trusts.
 
-The profile has no settings: `profiles.nitro`, globally and per predicate type, MUST be absent or `{}`.
+The profile has no settings: `profiles.awsnitro`, globally and per predicate type, MUST be absent or `{}`.
 
 ## What a verifier reports
 
