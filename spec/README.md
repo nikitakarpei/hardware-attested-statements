@@ -356,9 +356,10 @@ does.
 
 Values MUST be RFC 9651 structured fields, each in one field line, without parameters. `Attested-Timestamp` and
 `Attested-Timestamp-Tree` MUST appear together or not at all. A response carrying any `Attested-*` header more than
-once (including as comma-joined values) is rejected; a verifier MUST ignore trailers. The headers total about 9 KB,
-more than some proxies and servers allow by default (nginx's `proxy_buffer_size`, 4 or 8 KB, for example). Responses
-aren't bound to a request: their time bounds show when they were made.
+once (including as comma-joined values) is rejected; a verifier MUST ignore trailers. The headers total about 9 KB
+with Android evidence and 13 KB with AWS Nitro evidence, more than some proxies and servers allow by default
+(nginx's `proxy_buffer_size`, 4 or 8 KB, for example). Responses aren't bound to a request: their time bounds show
+when they were made.
 
 A **saved response** is the status line, the header fields, an empty line, and the body, to the end of the file. A
 verifier MUST parse it strictly, and MUST reject anything else rather than interpreting it, since parsers disagree
