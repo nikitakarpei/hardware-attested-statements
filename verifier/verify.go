@@ -1,6 +1,6 @@
 // Package verifier checks Hardware-Attested Statement bundles (spec/README.md): in-toto statements signed with a
 // hardware-attested key, optionally time-stamped, and the bundles of the statements they were made from. Key
-// evidence is checked by profiles (see profiles/android).
+// evidence is checked by profiles (see profiles/android and profiles/awsnitro).
 package verifier
 
 import (
@@ -487,7 +487,7 @@ func (v *Verifier) policy(n *Result, now time.Time) error {
 		return err
 	}
 	for _, b := range n.bundles { // every copy must pass
-		key, err := profile.VerifyKey(b.VerificationMaterial.Key.Raw, trusted, settings, now)
+		key, err := profile.VerifyKey(b.VerificationMaterial.Key.Raw, trusted, settings, KeyContext{Now: now, Drand: v.Drand})
 		if err != nil {
 			return err
 		}

@@ -53,8 +53,8 @@ The bundle's `key` is:
 The **key binding** (core spec section 2) is the content of the COSE_Sign1 payload byte string: the attestation
 document, which contains the signing key, the commitment to the round, the PCRs and the certificate chain, and can't
 be changed without the signing certificate's key (unlike the COSE signature, which anyone can turn into another
-valid one). A verifier can compute it once the `key` object has exactly the members above and step 1 holds;
-otherwise the evidence can't be read (core spec section 0).
+valid one). A verifier can compute it once the `key` object has exactly the members above, and steps 1 and 2 hold
+for the COSE_Sign1 structure (not yet for the payload); otherwise the evidence can't be read (core spec section 0).
 
 ## Verification
 

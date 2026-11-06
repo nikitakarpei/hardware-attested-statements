@@ -2,7 +2,9 @@ package verifier
 
 import (
 	"crypto/ecdsa"
+	"encoding/hex"
 	"encoding/json/jsontext"
+	"fmt"
 	"time"
 )
 
@@ -14,9 +16,33 @@ type Profile interface {
 	CheckPolicy(trusted []jsontext.Value, settings jsontext.Value) error
 	// Binding returns the evidence's key binding (spec section 2), exactly as carried, without verifying it.
 	Binding(evidence jsontext.Value) ([]byte, error)
-	// VerifyKey checks evidence under settings, at verification time now, and that it names a signer one of
-	// trusted accepts.
-	VerifyKey(evidence jsontext.Value, trusted []jsontext.Value, settings jsontext.Value, now time.Time) (*Key, error)
+	// VerifyKey checks evidence under settings, in context kc, and that it names a signer one of trusted accepts.
+	VerifyKey(evidence jsontext.Value, trusted []jsontext.Value, settings jsontext.Value, kc KeyContext) (*Key, error)
+}
+
+// KeyContext is what a profile's VerifyKey may rely on besides the evidence and the policy's entries for it.
+type KeyContext struct {
+	// Now is the verification time.
+	Now time.Time
+	// Drand holds the drand chains the policy trusts, by chain hash: a round in key evidence from any other chain
+	// can't be relied on (see VerifyRound).
+	Drand map[string]DrandChain
+}
+
+// VerifyRound checks a drand round, in key evidence, from one of the policy's trusted chains, and returns its time.
+func (kc KeyContext) VerifyRound(r DrandRound) (time.Time, error) {
+	if err := r.check(); err != nil {
+		return time.Time{}, err
+	}
+	chain, ok := kc.Drand[r.Chain]
+	if !ok {
+		return time.Time{}, fmt.Errorf("drand chain %s is not trusted", r.Chain)
+	}
+	sig, _ := hex.DecodeString(r.Signature)
+	if err := chain.Verify(r.Round, sig); err != nil {
+		return time.Time{}, err
+	}
+	return chain.RoundTime(r.Round), nil
 }
 
 // Key is what a profile established about a signing key.

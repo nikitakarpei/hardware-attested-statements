@@ -5,7 +5,9 @@ Each release has a section `## <version> (<date>)`, used as its release notes. V
 
 ## Unreleased
 
-The `awsnitro` profile, for programs in AWS Nitro Enclaves (spec only; the verifier doesn't support it yet).
+The `awsnitro` profile, for programs in AWS Nitro Enclaves, in the spec and the verifier (`profiles/awsnitro`,
+also used by `attested-verify`). Profiles' `VerifyKey` now takes a `verifier.KeyContext`, with the policy's trusted
+drand chains.
 
 ## 0.1.0 (2026-11-05)
 

@@ -21,6 +21,7 @@ import (
 	"github.com/nikitakarpei/hardware-attested-statements/verifier"
 	"github.com/nikitakarpei/hardware-attested-statements/verifier/predicates/httpresponse"
 	"github.com/nikitakarpei/hardware-attested-statements/verifier/profiles/android"
+	"github.com/nikitakarpei/hardware-attested-statements/verifier/profiles/awsnitro"
 )
 
 type files []string
@@ -79,7 +80,9 @@ func main() {
 		trust.Roots = append(trust.Roots, c)
 		fmt.Fprintf(os.Stderr, "warning: trusting test root %s\n", path)
 	}
-	v, err := verifier.New(policy, android.New(trust))
+	nitroTrust, err := awsnitro.DefaultTrust()
+	fail(err)
+	v, err := verifier.New(policy, android.New(trust), awsnitro.New(nitroTrust))
 	fail(err)
 
 	switch args[0] {

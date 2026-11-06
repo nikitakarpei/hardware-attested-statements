@@ -191,7 +191,8 @@ func (p *Profile) Binding(raw jsontext.Value) ([]byte, error) {
 	return chain[0].RawTBSCertificate, nil
 }
 
-func (p *Profile) VerifyKey(raw jsontext.Value, trusted []jsontext.Value, settings jsontext.Value, now time.Time) (*verifier.Key, error) {
+func (p *Profile) VerifyKey(raw jsontext.Value, trusted []jsontext.Value, settings jsontext.Value, kc verifier.KeyContext) (*verifier.Key, error) {
+	now := kc.Now
 	s, err := p.settings(settings)
 	if err != nil {
 		return nil, err

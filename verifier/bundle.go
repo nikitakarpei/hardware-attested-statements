@@ -302,10 +302,18 @@ func (s *Statement) StartedAfter() (*StartedAfter, error) {
 	if d == nil {
 		return nil, errors.New("startedAfter: no supported value (drand)")
 	}
-	if !isSHA256(d.Chain) || d.Round == 0 || d.Round > MaxJSONInteger || !isLowerHex(d.Signature, 48) {
-		return nil, errors.New("startedAfter: malformed drand round")
+	if err := d.check(); err != nil {
+		return nil, fmt.Errorf("startedAfter: %w", err)
 	}
 	return p.StartedAfter, nil
+}
+
+// check checks a drand round's form: the chain hash, a round of at least 1, and a signature on G1 (lowercase hex).
+func (d DrandRound) check() error {
+	if !isSHA256(d.Chain) || d.Round == 0 || d.Round > MaxJSONInteger || !isLowerHex(d.Signature, 48) {
+		return errors.New("malformed drand round")
+	}
+	return nil
 }
 
 // SubjectDigest returns the sha256 digest (hex) of the subject with the given name.
