@@ -486,23 +486,6 @@ func (v *Verifier) policy(n *Result, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	for _, b := range n.bundles { // every copy must pass
-		key, err := profile.VerifyKey(b.VerificationMaterial.Key.Raw, trusted, settings, now)
-		if err != nil {
-			return err
-		}
-		if key.PublicKey == nil || key.PublicKey.Curve != elliptic.P256() {
-			return errors.New("the signing key is not a P-256 key")
-		}
-		env := b.DSSEEnvelope
-		if err := verifySignature(key.PublicKey, PAE(env.PayloadType, env.Payload), env.Signatures[0].Sig); err != nil {
-			return err
-		}
-		if n.Key == nil {
-			n.Key = key
-		}
-	}
-
 	// Time (spec section 4).
 	if pp.RequireTimestamp && n.NotAfter.IsZero() {
 		return errors.New("a time-stamp is required, on it or on a statement made from it")
@@ -517,14 +500,42 @@ func (v *Verifier) policy(n *Result, now time.Time) error {
 			return fmt.Errorf("its lower time bound %v is in the future", n.NotBefore.UTC())
 		}
 	}
-	if upper.Before(n.Key.ValidFrom) || upper.After(n.Key.ValidUntil) {
-		if n.NotAfter.IsZero() {
+
+	// Every copy must pass every check, at the same upper bound: copies share the statement, key binding and
+	// signature, but not the rest of their key evidence (on Android, the certificates above the leaf).
+	for _, b := range n.bundles {
+		key, err := profile.VerifyKey(b.VerificationMaterial.Key.Raw, trusted, settings, now)
+		if err != nil {
+			return err
+		}
+		if key.PublicKey == nil || key.PublicKey.Curve != elliptic.P256() {
+			return errors.New("the signing key is not a P-256 key")
+		}
+		env := b.DSSEEnvelope
+		if err := verifySignature(key.PublicKey, PAE(env.PayloadType, env.Payload), env.Signatures[0].Sig); err != nil {
+			return err
+		}
+		if err := checkKeyAt(key, upper, !n.NotAfter.IsZero()); err != nil {
+			return err
+		}
+		if n.Key == nil {
+			n.Key = key
+		}
+	}
+	return nil
+}
+
+// checkKeyAt checks that key's evidence, and the policy's limits on it, hold at the statement's upper bound;
+// stamped says whether the bound is a time-stamp's (or else verification time).
+func checkKeyAt(key *Key, upper time.Time, stamped bool) error {
+	if upper.Before(key.ValidFrom) || upper.After(key.ValidUntil) {
+		if !stamped {
 			return errors.New("its key evidence isn't valid now, and no time-stamp shows it was signed while it was")
 		}
 		return fmt.Errorf("its key evidence wasn't valid at its upper time bound %v", upper.UTC())
 	}
-	if max := n.Key.MaxAge; max > 0 {
-		c := n.Key.Created
+	if max := key.MaxAge; max > 0 {
+		c := key.Created
 		switch {
 		case c == nil:
 			return errors.New("the key's creation time is unknown, and the policy limits key age")
