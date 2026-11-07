@@ -3,7 +3,7 @@
 Each release has a section `## <version> (<date>)`, used as its release notes. Versions follow
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.2.0 (2026-11-07)
 
 - Android profile: new settings `minOsVersion` (default 140000, Android 14) and `maxPatchAgeMonths` (default 6),
   which rejects keys whose OS patch level is more than that many months older than the statement's upper time
