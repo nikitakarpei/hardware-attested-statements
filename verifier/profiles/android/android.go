@@ -262,27 +262,15 @@ func (p *Profile) VerifyKey(raw jsontext.Value, trusted []jsontext.Value, settin
 		Created: dev.KeyCreated, MaxAge: time.Duration(s.MaxKeyAgeHours) * time.Hour}
 	// No patch level may be more than maxPatchLead months after the upper bound's month (checkDevice has checked
 	// the levels present are well-formed).
-	for _, l := range []struct {
-		name  string
-		level int64
-	}{{"OS", dev.OSPatchLevel}, {"vendor", dev.VendorPatchLevel}, {"boot", dev.BootPatchLevel}} {
-		if l.level == 0 {
-			continue
-		}
-		if from := monthStart(patchMonth(l.level), -maxPatchLead); from.After(key.AcceptedFrom) {
+	for _, level := range []int64{dev.OSPatchLevel, dev.VendorPatchLevel, dev.BootPatchLevel} {
+		if from := monthStart(patchMonth(level), -maxPatchLead); level != 0 && from.After(key.AcceptedFrom) {
 			key.AcceptedFrom = from
-			key.AcceptedFromReason = fmt.Sprintf("the device's %s patch level %d is in the future", l.name, l.level)
 		}
 	}
 	if n := *s.MaxPatchAgeMonths; n > 0 {
 		// Accepted while the upper bound's month is at most n months after the patch level's (checkDevice has
 		// checked it is present and well-formed).
 		key.AcceptedUntil = monthStart(patchMonth(dev.OSPatchLevel), int(n)+1)
-		months := "months"
-		if n == 1 {
-			months = "month"
-		}
-		key.AcceptedUntilReason = fmt.Sprintf("the device's OS patch level %d is more than %d %s old", dev.OSPatchLevel, n, months)
 	}
 	for _, c := range all {
 		if c.NotBefore.After(key.ValidFrom) {

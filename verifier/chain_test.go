@@ -529,15 +529,15 @@ func TestAndroidKeyChecks(t *testing.T) {
 		"no OS patch level":                      {opts: withDevice(o, fakeOS{version: fakeOSVersion, firmwarePatch: fakePatchMonth(0)}), want: "no OS patch level"},
 		"no OS patch level, age not limited":     {opts: withDevice(o, fakeOS{version: fakeOSVersion, firmwarePatch: fakePatchMonth(0)}), ok: true, setting: `{"maxPatchAgeMonths": 0}`},
 		"OS patch next month":                    {opts: withOS(o, fakeOSVersion, fakePatchMonth(1)), ok: true},
-		"OS patch in 2 months":                   {opts: withOS(o, fakeOSVersion, fakePatchMonth(2)), want: "OS patch level"},
-		"OS patch in 2 months, age not limited":  {opts: withOS(o, fakeOSVersion, fakePatchMonth(2)), setting: `{"maxPatchAgeMonths": 0}`, want: "is in the future"},
-		"firmware patch in 2 months":             {opts: withDevice(o, fakeOS{version: fakeOSVersion, patch: fakePatchMonth(0), firmwarePatch: fakePatchMonth(2)}), want: "vendor patch level"},
+		"OS patch in 2 months":                   {opts: withOS(o, fakeOSVersion, fakePatchMonth(2)), want: "starts accepting"},
+		"OS patch in 2 months, age not limited":  {opts: withOS(o, fakeOSVersion, fakePatchMonth(2)), setting: `{"maxPatchAgeMonths": 0}`, want: "starts accepting"},
+		"firmware patch in 2 months":             {opts: withDevice(o, fakeOS{version: fakeOSVersion, patch: fakePatchMonth(0), firmwarePatch: fakePatchMonth(2)}), want: "starts accepting"},
 		"patch 6 months old by default":          {opts: withOS(o, fakeOSVersion, fakePatchMonth(-6)), ok: true},
-		"patch 7 months old by default":          {opts: withOS(o, fakeOSVersion, fakePatchMonth(-7)), want: "more than 6 months old"},
+		"patch 7 months old by default":          {opts: withOS(o, fakeOSVersion, fakePatchMonth(-7)), want: "stops accepting"},
 		"patch 7 months old, 12 allowed":         {opts: withOS(o, fakeOSVersion, fakePatchMonth(-7)), ok: true, setting: `{"maxPatchAgeMonths": 12}`},
 		"patch 7 months old, age not limited":    {opts: withOS(o, fakeOSVersion, fakePatchMonth(-7)), ok: true, setting: `{"maxPatchAgeMonths": 0}`},
 		"patch last month, 1 month allowed":      {opts: withOS(o, fakeOSVersion, fakePatchMonth(-1)), ok: true, setting: `{"maxPatchAgeMonths": 1}`},
-		"patch 2 months old, 1 month allowed":    {opts: withOS(o, fakeOSVersion, fakePatchMonth(-2)), setting: `{"maxPatchAgeMonths": 1}`, want: "more than 1 month old"},
+		"patch 2 months old, 1 month allowed":    {opts: withOS(o, fakeOSVersion, fakePatchMonth(-2)), setting: `{"maxPatchAgeMonths": 1}`, want: "stops accepting"},
 		"patch in a month 13":                    {opts: withOS(o, fakeOSVersion, 202613), want: "neither YYYYMM nor YYYYMMDD"},
 		"stock OS not accepted (per-type empty)": {opts: o, setting: `{"os": {"stock": false, "bootKeyLists": ["grapheneos"]}}`},
 	}
@@ -596,7 +596,7 @@ func TestFuturePatchAtUpperBound(t *testing.T) {
 	}
 	// The upper bound is the token's time plus at least a second: two seconds before last month starts.
 	s.tsa.stamp(t, b, thisMonth.AddDate(0, -1, 0).Add(-2*time.Second), 0)
-	if _, err := v.Verify(b); err == nil || !strings.Contains(err.Error(), "is in the future") {
+	if _, err := v.Verify(b); err == nil || !strings.Contains(err.Error(), "starts accepting") {
 		t.Errorf("time-stamped two months before the patch level: %v", err)
 	}
 }
@@ -619,7 +619,7 @@ func TestPatchAgeAtUpperBound(t *testing.T) {
 		t.Errorf("time-stamped while the patch level was recent enough: %v", err)
 	}
 	s.tsa.stamp(t, b, now.Truncate(time.Second), 0)
-	if _, err := v.Verify(b); err == nil || !strings.Contains(err.Error(), "more than 6 months old") {
+	if _, err := v.Verify(b); err == nil || !strings.Contains(err.Error(), "stops accepting") {
 		t.Errorf("time-stamped once the patch level was too old: %v", err)
 	}
 }
