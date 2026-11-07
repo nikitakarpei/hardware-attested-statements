@@ -106,6 +106,23 @@ type fakeKey struct {
 	leaf  *x509.Certificate
 	chain [][]byte // leaf first, without the root
 	root  *x509.Certificate
+	// The device's attestation certificate and the one above it, with their keys, to re-issue the former.
+	att, top       *x509.Certificate
+	attKey, topKey *ecdsa.PrivateKey
+}
+
+// reissued is k's chain with its attestation certificate re-issued (same subject and key) for another validity
+// period: the leaf, and so its key binding, is unchanged.
+func (k *fakeKey) reissued(t *testing.T, notBefore, notAfter time.Time) [][]byte {
+	t.Helper()
+	tmpl := *k.att
+	tmpl.SerialNumber = new(big.Int).Add(k.att.SerialNumber, big.NewInt(1000))
+	tmpl.NotBefore, tmpl.NotAfter = notBefore, notAfter
+	der, err := x509.CreateCertificate(rand.Reader, &tmpl, k.top, &k.attKey.PublicKey, k.topKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return [][]byte{k.leaf.Raw, der, k.top.Raw}
 }
 
 // newFakeKey makes a key with a StrongBox attestation chain under a fake root, as Keystore would.
@@ -152,7 +169,7 @@ func newFakeKey(t *testing.T, o fakeOptions) *fakeKey {
 	attCert, attKey := cert(att, topCert, topKey, nil, true, nil)
 	leaf, leafKey := cert(pkix.Name{CommonName: "Android Keystore Key"}, attCert, attKey, o.publicKey, false,
 		[]pkix.Extension{{Id: android.OIDKeyAttestation, Value: o.extension}})
-	return &fakeKey{leafKey, leaf, [][]byte{leaf.Raw, attCert.Raw, topCert.Raw}, root}
+	return &fakeKey{leafKey, leaf, [][]byte{leaf.Raw, attCert.Raw, topCert.Raw}, root, attCert, topCert, attKey, topKey}
 }
 
 // testTSA is a time-stamp authority for tests.
@@ -397,6 +414,28 @@ func TestBoundsDontDependOnBundleOrder(t *testing.T) {
 			t.Errorf("%s: input not linked", name)
 		} else if !c.NotAfter.Equal(now.Add(time.Second)) {
 			t.Errorf("%s: input's upper bound %v, want the passing time-stamp's %v", name, c.NotAfter, now.Add(time.Second))
+		}
+	}
+}
+
+// Every bundle of a statement must have key evidence valid at its upper bound, whichever comes first: copies share
+// the leaf, but not the certificates above it (spec section 5).
+func TestEveryCopysEvidenceIsChecked(t *testing.T) {
+	s := newDerivedSetup(t, "")
+	v := mustVerifier(t, s.params.policy(t), s.trust)
+	good := s.derived(t, "", time.Time{})
+	expired := *good
+	past := time.Now().Add(-48 * time.Hour)
+	expired.VerificationMaterial.Key = bundleWith(t, nil, nil, s.key.reissued(t, past, past.Add(time.Hour))).VerificationMaterial.Key
+	if signedID(t, &expired) != signedID(t, good) {
+		t.Fatal("the copies aren't of the same signing")
+	}
+	if _, err := v.Verify(good); err != nil {
+		t.Fatalf("the valid copy alone: %v", err)
+	}
+	for name, order := range map[string][2]*verifier.Bundle{"expired copy last": {good, &expired}, "expired copy first": {&expired, good}} {
+		if _, err := v.Verify(order[0], order[1]); err == nil || !strings.Contains(err.Error(), "isn't valid now") {
+			t.Errorf("%s: %v", name, err)
 		}
 	}
 }
