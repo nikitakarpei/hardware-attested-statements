@@ -55,6 +55,10 @@ const (
 	DefaultMaxListAgeHours   = 48
 	DefaultMaxPatchAgeMonths = 6
 	DefaultMinOSVersion      = 140000 // Android 14
+
+	// A patch level may be at most this many months after the statement's upper bound: vendors get bulletins
+	// ahead of publication, and some ship them in the last days of the month before.
+	maxPatchLead = 1
 )
 
 // OSSetting says which operating systems to accept: the device's stock OS (verified by its own boot chain), and
@@ -138,8 +142,8 @@ func (p *Profile) settings(raw jsontext.Value) (*Settings, error) {
 	if m := *s.MaxPatchAgeMonths; m < 0 || m > 1200 {
 		return nil, fmt.Errorf("android settings: maxPatchAgeMonths %d isn't from 0 to 1200", m)
 	}
-	if v := *s.MinOSVersion; v < 0 || v > 999999 {
-		return nil, fmt.Errorf("android settings: minOsVersion %d isn't MMmmpp", v)
+	if v := *s.MinOSVersion; v != 0 && (v < 10000 || v > 999999) {
+		return nil, fmt.Errorf("android settings: minOsVersion %d isn't MMmmpp (140000 is Android 14) or 0", v)
 	}
 	if *s.MaxListAgeHours <= 0 || s.MaxKeyAgeHours < 0 {
 		return nil, errors.New("android settings: maxListAgeHours must be positive, and maxKeyAgeHours not negative")
@@ -256,11 +260,24 @@ func (p *Profile) VerifyKey(raw jsontext.Value, trusted []jsontext.Value, settin
 	}
 	key := &verifier.Key{PublicKey: pub, Signer: app, Device: dev, ValidFrom: all[0].NotBefore, ValidUntil: all[0].NotAfter,
 		Created: dev.KeyCreated, MaxAge: time.Duration(s.MaxKeyAgeHours) * time.Hour}
+	// No patch level may be more than maxPatchLead months after the upper bound's month (checkDevice has checked
+	// the levels present are well-formed).
+	for _, l := range []struct {
+		name  string
+		level int64
+	}{{"OS", dev.OSPatchLevel}, {"vendor", dev.VendorPatchLevel}, {"boot", dev.BootPatchLevel}} {
+		if l.level == 0 {
+			continue
+		}
+		if from := monthStart(patchMonth(l.level), -maxPatchLead); from.After(key.PlausibleFrom) {
+			key.PlausibleFrom = from
+			key.ImplausibleReason = fmt.Sprintf("the device's %s patch level %d is in the future", l.name, l.level)
+		}
+	}
 	if n := *s.MaxPatchAgeMonths; n > 0 {
 		// Accepted while the upper bound's month is at most n months after the patch level's (checkDevice has
 		// checked it is present and well-formed).
-		y, m := int(patchMonth(dev.OSPatchLevel)/100), int(patchMonth(dev.OSPatchLevel)%100)
-		key.StaleFrom = time.Date(y, time.Month(m)+time.Month(n)+1, 1, 0, 0, 0, 0, time.UTC)
+		key.StaleFrom = monthStart(patchMonth(dev.OSPatchLevel), int(n)+1)
 		months := "months"
 		if n == 1 {
 			months = "month"
@@ -463,6 +480,11 @@ func patchMonth(level int64) int64 {
 		return 0
 	}
 	return level
+}
+
+// monthStart is the start (UTC) of the month n months after month (YYYYMM).
+func monthStart(month int64, n int) time.Time {
+	return time.Date(int(month/100), time.Month(month%100)+time.Month(n), 1, 0, 0, 0, 0, time.UTC)
 }
 
 // osVersionString shows an attested OS version (MMmmpp) as Android does: 140000 is "14", 120100 "12.1".

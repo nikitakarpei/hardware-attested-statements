@@ -256,7 +256,7 @@ func TestCaptureTampering(t *testing.T) {
 			p.noCaptureType = true
 			p.extraTypes = `"urn:x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"]}]}`
 		})},
-		"patch level too old": {raw: example, params: params(func(p *policyParams) { p.androidSettings = `{"minOsPatchLevel": 202611}` })},
+		"patch level too old": {raw: example, params: params(func(p *policyParams) { p.androidSettings = `{"minOsPatchLevel": 999912}` })},
 		"Android too old":     {raw: example, params: params(func(p *policyParams) { p.androidSettings = `{"minOsVersion": 170000}` })},
 		"stock OS only":       {raw: example, params: params(func(p *policyParams) { p.androidSettings = `{"os": {"stock": true, "bootKeyLists": []}}` })},
 		"boot key on no list": {raw: example, trust: func(tr *android.Trust) {
@@ -280,7 +280,7 @@ func TestCaptureTampering(t *testing.T) {
 		"lists too old":               {raw: example, trust: func(tr *android.Trust) { tr.RevocationProduced = time.Now().Add(-49 * time.Hour) }},
 		"lists too old for policy": {raw: example, params: params(func(p *policyParams) { p.androidSettings = `{"maxListAgeHours": 1}` }),
 			trust: func(tr *android.Trust) { tr.RevocationProduced = time.Now().Add(-2 * time.Hour) }},
-		"vendor patch too old": {raw: example, params: params(func(p *policyParams) { p.androidSettings = `{"minVendorPatchLevel": 202611}` })},
+		"vendor patch too old": {raw: example, params: params(func(p *policyParams) { p.androidSettings = `{"minVendorPatchLevel": 999912}` })},
 		"key too old":          {raw: example, params: params(func(p *policyParams) { p.androidSettings = `{"maxKeyAgeHours": 1}` })},
 	}
 	for name, c := range cases {

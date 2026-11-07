@@ -90,12 +90,15 @@ nonzero minimum.
 
 The `min…PatchLevel` settings are YYYYMM, compared with the attested level's year and month (`osPatchLevel` is
 YYYYMM; `vendorPatchLevel` and `bootPatchLevel` are YYYYMMDD, or YYYYMM on some devices). A level of neither six nor
-eight digits, or with a month outside 1 to 12, is rejected; a missing level fails any nonzero minimum.
+eight digits, or with a month outside 1 to 12, is rejected; a missing level fails any nonzero minimum. A level's
+month MUST NOT be more than one month after the month of the statement's upper bound (core spec section 4), in UTC:
+vendors ship patches early, but not by more.
 
 With `maxPatchAgeMonths` above 0, the statement's upper bound (core spec section 4) MUST fall, in UTC, at most that
 many calendar months after the month of `osPatchLevel` (6 and 202605: until the end of November 2026), and a missing
 `osPatchLevel` is rejected. This rejects devices that stopped getting updates; 6 accepts devices updated quarterly.
-The patch level is the vendor's claim, not proof of the fixes.
+The patch level is the one when the key was created (section Key), and is the vendor's claim, not proof of the
+fixes.
 
 **Operating system.** The boot state MUST be one of:
 
@@ -143,7 +146,7 @@ Settings go under `profiles.android`, globally and per predicate type, merged ov
 Without settings, these are the defaults.
 
 - `maxListAgeHours` applies to every list: the revocation list and boot-key lists.
-- `minOsVersion` (0 to 999999) and `maxPatchAgeMonths` (0 to 1200): 0 turns the check off.
+- `minOsVersion` (0, or 10000 to 999999) and `maxPatchAgeMonths` (0 to 1200): 0 turns the check off.
 - `maxKeyAgeHours` (no default), if set, rejects keys created longer ago than that before the statement's upper
   bound, as their attestation shows (creationDateTime, set by the device's OS and clock). With it set, a missing
   creationDateTime, or one later than the upper bound, is rejected.

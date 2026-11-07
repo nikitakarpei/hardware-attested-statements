@@ -32,11 +32,13 @@ type Key struct {
 	// statement's upper bound.
 	Created *time.Time    `json:"created,omitzero"`
 	MaxAge  time.Duration `json:"-"`
-	// StaleFrom, if set, is when the policy stops accepting the evidence although it is still valid (for example,
-	// once the device's attested patch level is too old): the statement's upper bound must be before it.
-	// StaleReason says why, for the error.
-	StaleFrom   time.Time `json:"staleFrom,omitzero"`
-	StaleReason string    `json:"-"`
+	// The statement's upper bound must be from PlausibleFrom and before StaleFrom, if set: limits on the evidence
+	// besides its validity (for example, an attested patch level that is in the future, or too old, at that
+	// time). ImplausibleReason and StaleReason say why, for the error.
+	PlausibleFrom     time.Time `json:"plausibleFrom,omitzero"`
+	ImplausibleReason string    `json:"-"`
+	StaleFrom         time.Time `json:"staleFrom,omitzero"`
+	StaleReason       string    `json:"-"`
 	// Description is a few lines for people.
 	Description []string `json:"description"`
 }
