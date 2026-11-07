@@ -133,8 +133,7 @@ The version is the one that created the key, so `versionCodes` keeps other versi
 version signed with these certificates makes its own key (section Key), which a verifier can't check;
 `maxKeyAgeHours` limits how long an older key stays usable.
 
-Settings go under `profiles.android`, globally and per predicate type, merged over the global ones member by member
-(core spec section 5):
+Settings go under `profiles.android` of each predicate type (core spec section 5):
 
 ```json
 { "requireStrongBox": false, "allowFactoryProvisioned": false,
@@ -143,16 +142,15 @@ Settings go under `profiles.android`, globally and per predicate type, merged ov
   "os": { "stock": true, "bootKeyLists": ["grapheneos"] }, "maxListAgeHours": 48 }
 ```
 
-Without settings, these are the defaults.
+Without settings, or for members not given, these are the defaults.
 
 - `maxListAgeHours` applies to every list: the revocation list and boot-key lists.
 - `minOsVersion` (0, or 10000 to 999999) and `maxPatchAgeMonths` (0 to 1200): 0 turns the check off.
 - `maxKeyAgeHours` (no default), if set, rejects keys created longer ago than that before the statement's upper
   bound, as their attestation shows (creationDateTime, set by the device's OS and clock). With it set, a missing
   creationDateTime, or one later than the upper bound, is rejected.
-- `os` is replaced as a whole, MUST have both members, and MUST accept at least one OS:
-  `{"stock": false, "bootKeyLists": ["grapheneos"]}` accepts only GrapheneOS, whose devices (Pixels) have boot
-  chains GrapheneOS vets.
+- `os` MUST have both members, and MUST accept at least one OS: `{"stock": false, "bootKeyLists": ["grapheneos"]}`
+  accepts only GrapheneOS, whose devices (Pixels) have boot chains GrapheneOS vets.
 
 ## What a verifier reports
 

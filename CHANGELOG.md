@@ -9,6 +9,10 @@ Each release has a section `## <version> (<date>)`, used as its release notes. V
   which rejects keys whose OS patch level is more than that many months older than the statement's upper time
   bound. Both are on by default, so devices on older Android versions, or that stopped getting updates, are now
   rejected; set either to 0 to turn it off.
+- Policy: profile settings are given only per predicate type; the policy-wide `profiles` member is gone, and a
+  policy that has it is rejected. Each type's requirements are stated where they apply, so a type can't silently
+  inherit (or miss) settings meant for another. Android settings that aren't an object, such as `null`, are
+  rejected.
 - Android profile: patch levels whose month isn't 1 to 12, or that are more than a month after the statement's
   upper time bound, are rejected.
 - Verifier: reports the Android version; `Key.AcceptedFrom` and `Key.AcceptedUntil` say between when the patch

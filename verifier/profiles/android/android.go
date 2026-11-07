@@ -112,6 +112,9 @@ func (p *Profile) Name() string { return Name }
 func (p *Profile) settings(raw jsontext.Value) (*Settings, error) {
 	s := &Settings{}
 	if len(raw) > 0 {
+		if t := bytes.TrimSpace(raw); len(t) == 0 || t[0] != '{' {
+			return nil, errors.New("android settings: must be an object (leave them out for the defaults)")
+		}
 		if err := verifier.UnmarshalStrict(raw, s); err != nil {
 			return nil, fmt.Errorf("android settings: %w", err)
 		}

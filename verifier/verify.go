@@ -63,16 +63,6 @@ func New(policy *Policy, profiles ...Profile) (*Verifier, error) {
 		}
 		v.DistrustedDrand[c.Hash] = true
 	}
-	for name := range policy.Profiles {
-		if _, ok := v.Profiles[name]; !ok {
-			return nil, fmt.Errorf("policy: profiles: unknown profile %q", name)
-		}
-	}
-	for name, p := range v.Profiles {
-		if err := p.CheckPolicy(nil, policy.Profiles[name]); err != nil {
-			return nil, fmt.Errorf("policy: %w", err)
-		}
-	}
 	for t, pp := range policy.PredicateTypes {
 		for _, raw := range pp.TrustedSigners {
 			name, err := profileOf(raw)
@@ -93,11 +83,7 @@ func New(policy *Policy, profiles ...Profile) (*Verifier, error) {
 			if err != nil {
 				return nil, err
 			}
-			settings, err := policy.settingsFor(pp, name)
-			if err != nil {
-				return nil, err
-			}
-			if err := p.CheckPolicy(entries, settings); err != nil {
+			if err := p.CheckPolicy(entries, pp.Profiles[name]); err != nil {
 				return nil, fmt.Errorf("policy: %s: %w", t, err)
 			}
 		}
@@ -482,10 +468,7 @@ func (v *Verifier) policy(n *Result, now time.Time) error {
 	if len(trusted) == 0 {
 		return fmt.Errorf("the policy trusts no %s signers for %s", n.Profile, st.PredicateType)
 	}
-	settings, err := v.Policy.settingsFor(pp, n.Profile)
-	if err != nil {
-		return err
-	}
+	settings := pp.Profiles[n.Profile]
 	for _, b := range n.bundles { // every copy must pass
 		key, err := profile.VerifyKey(b.VerificationMaterial.Key.Raw, trusted, settings, now)
 		if err != nil {

@@ -546,7 +546,7 @@ func TestAndroidKeyChecks(t *testing.T) {
 			k := newFakeKey(t, c.opts)
 			s := newDerivedSetup(t, "")
 			if c.setting != "" {
-				// Per predicate type, replacing the (default) global settings.
+				// The derived type's own settings.
 				s.params.extraTypes = strings.Replace(s.params.extraTypes, `"trustedSigners"`, `"profiles": {"android": `+c.setting+`}, "trustedSigners"`, 1)
 			}
 			s.trust.Roots = append(s.trust.Roots, k.root)

@@ -7,7 +7,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 )
 
@@ -22,8 +21,6 @@ type Policy struct {
 	DistrustedTimestampAuthorities []string                   `json:"distrustedTimestampAuthorities,omitzero"`
 	DistrustedDrandChains          []string                   `json:"distrustedDrandChains,omitzero"`
 	PredicateTypes                 map[string]PredicatePolicy `json:"predicateTypes"`
-	// Profiles holds each profile's settings, by profile name.
-	Profiles map[string]jsontext.Value `json:"profiles,omitzero"`
 }
 
 type PredicatePolicy struct {
@@ -34,7 +31,8 @@ type PredicatePolicy struct {
 	RequireStartedAfter bool             `json:"requireStartedAfter,omitzero"`
 	// AllowUnverifiedInputs accepts a statement of this type although some of the inputs it lists aren't.
 	AllowUnverifiedInputs bool `json:"allowUnverifiedInputs,omitzero"`
-	// Profiles replaces the policy's settings of these profiles for this predicate type.
+	// Profiles holds each profile's settings for this predicate type, by profile name; a profile not given here
+	// uses its defaults. There are no policy-wide settings: each type states its own.
 	Profiles map[string]jsontext.Value `json:"profiles,omitzero"`
 }
 
@@ -115,28 +113,6 @@ func (pp PredicatePolicy) signersFor(profile string) ([]jsontext.Value, error) {
 		}
 	}
 	return out, nil
-}
-
-// settingsFor returns a profile's settings for this predicate type: the type's own merged over the policy's,
-// member by member (spec section 5).
-func (p *Policy) settingsFor(pp PredicatePolicy, profile string) (jsontext.Value, error) {
-	own, ok := pp.Profiles[profile]
-	if !ok {
-		return p.Profiles[profile], nil
-	}
-	global, ok := p.Profiles[profile]
-	if !ok {
-		return own, nil
-	}
-	var merged, over map[string]jsontext.Value
-	if err := json.Unmarshal(global, &merged); err != nil {
-		return nil, fmt.Errorf("policy: %s settings: %w", profile, err)
-	}
-	if err := json.Unmarshal(own, &over); err != nil {
-		return nil, fmt.Errorf("policy: %s settings: %w", profile, err)
-	}
-	maps.Copy(merged, over)
-	return json.Marshal(merged, json.Deterministic(true))
 }
 
 func profileOf(raw jsontext.Value) (string, error) {

@@ -26,7 +26,7 @@ type policyParams struct {
 	versionCodes        string // JSON array, or "" for any
 	requireTimestamp    bool
 	requireStartedAfter bool
-	androidSettings     string // JSON object, or "" for defaults
+	androidSettings     string // the capture type's, JSON object, or "" for defaults
 	extraTypes          string // more "type": {…} members
 	noCaptureType       bool
 	tsas, drand         string // JSON arrays, or "" for ["freetsa"] and ["quicknet"]
@@ -45,16 +45,16 @@ func (p policyParams) policy(t *testing.T) *verifier.Policy {
 		if p.versionCodes != "" {
 			versions = `, "versionCodes": ` + p.versionCodes
 		}
+		settings := ""
+		if p.androidSettings != "" {
+			settings = `, "profiles": { "android": ` + p.androidSettings + ` }`
+		}
 		types = append(types, fmt.Sprintf(`%q: { "trustedSigners": [{ "profile": "android", "package": %q,
-		  "signingCertificates": [%q]%s }], "requireTimestamp": %v, "requireStartedAfter": %v }`,
-			httpresponse.PredicateType, capturePackage, p.signingCertificate, versions, p.requireTimestamp, p.requireStartedAfter))
+		  "signingCertificates": [%q]%s }], "requireTimestamp": %v, "requireStartedAfter": %v%s }`,
+			httpresponse.PredicateType, capturePackage, p.signingCertificate, versions, p.requireTimestamp, p.requireStartedAfter, settings))
 	}
 	if p.extraTypes != "" {
 		types = append(types, p.extraTypes)
-	}
-	profiles := "{}"
-	if p.androidSettings != "" {
-		profiles = `{ "android": ` + p.androidSettings + ` }`
 	}
 	tsas, drand := p.tsas, p.drand
 	if tsas == "" {
@@ -69,7 +69,7 @@ func (p policyParams) policy(t *testing.T) *verifier.Policy {
 	}
 	pol, err := verifier.ParsePolicy([]byte(`{ "policy": "hardware-attested-statement/policy/v0.1",
 	  "timestampAuthorities": ` + tsas + `, "drandChains": ` + drand + `,` + distrusted + `
-	  "predicateTypes": {` + strings.Join(types, ",") + `}, "profiles": ` + profiles + ` }`))
+	  "predicateTypes": {` + strings.Join(types, ",") + `} }`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,13 +432,14 @@ func TestPolicyMistakesAreErrors(t *testing.T) {
 		"incomplete TSA":           `{"policy": "hardware-attested-statement/policy/v0.1", "timestampAuthorities": [{"name": "x"}], "drandChains": [], "predicateTypes": {}}`,
 		"unknown drand chain":      `{"policy": "hardware-attested-statement/policy/v0.1", "timestampAuthorities": [], "drandChains": ["mainnet"], "predicateTypes": {}}`,
 		"unknown profile":          head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "ios"}]}}}`,
-		"unknown profile settings": head + `"predicateTypes": {}, "profiles": {"andriod": {}}}`,
+		"policy-wide settings":     head + `"predicateTypes": {}, "profiles": {"android": {}}}`,
+		"unknown profile settings": head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"andriod": {}}}}}`,
 		"bad android signer":       head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signers": []}]}}}`,
-		"bad android setting":      head + `"predicateTypes": {}, "profiles": {"android": {"requireStrongBoxx": true}}}`,
-		"case-folded setting":      head + `"predicateTypes": {}, "profiles": {"android": {"requireStrongbox": true}}}`,
-		"bad per-type setting":     head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": {"minOsPatch": 1}}}}}`,
-		"zero list age":            head + `"predicateTypes": {}, "profiles": {"android": {"maxListAgeHours": 0}}}`,
-		"no OS accepted":           head + `"predicateTypes": {}, "profiles": {"android": {"os": {"stock": false, "bootKeyLists": []}}}}`,
+		"bad android setting":      head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": {"requireStrongBoxx": true}}}}}`,
+		"case-folded setting":      head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": {"requireStrongbox": true}}}}}`,
+		"null settings":            head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": null}}}}`,
+		"zero list age":            head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": {"maxListAgeHours": 0}}}}}`,
+		"no OS accepted":           head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": {"os": {"stock": false, "bootKeyLists": []}}}}}}`,
 	} {
 		p, err := verifier.ParsePolicy([]byte(raw))
 		if err == nil {
