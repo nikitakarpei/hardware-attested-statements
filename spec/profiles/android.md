@@ -92,18 +92,18 @@ its patch level says otherwise.
 
 The `min…PatchLevel` settings are YYYYMM, and are compared with the attested level's year and month (`osPatchLevel`
 is YYYYMM; `vendorPatchLevel` and `bootPatchLevel` are YYYYMMDD, or YYYYMM on some devices). An attested level of
-neither six nor eight digits, or whose month isn't 1 to 12, is rejected, and a missing level fails any minimum
-above 0.
+neither six nor eight digits, or whose month isn't 1 to 12, is rejected, and a missing level fails any nonzero
+minimum.
 
 With `maxPatchAgeMonths` above 0, the key is accepted only for statements whose upper bound (core spec section 4)
 falls, in UTC, at most that many calendar months after the month of `osPatchLevel`: with 6 and a patch level of
-202605, until the end of November 2026. A missing `osPatchLevel` is then rejected. Unlike a fixed
-`minOsPatchLevel`, this needs no updates to the policy, and it catches devices that stopped getting updates,
-whether because their Android version or the device itself reached its end of life. Patch levels are the dates of
-Google's monthly bulletins, and since 2025 most fixes come only in quarterly ones; vendors ship them weeks later,
-and many devices are updated only quarterly. A device updated every quarter can be four or five months behind just
-before its next update, so 6 accepts such devices, while 3 accepts only devices updated every month. The patch level
-is the vendor's claim: one that ships it without the fixes isn't caught.
+202605, until the end of November 2026. A missing `osPatchLevel` is then rejected. Unlike a fixed `minOsPatchLevel`,
+this needs no updates to the policy, and it catches devices that stopped getting updates, whether because their
+Android version or the device itself reached its end of life. Patch levels are the dates of Google's monthly
+bulletins, and since 2025 most fixes come only in quarterly ones; vendors ship them weeks later, and many devices
+are updated only quarterly. A device updated every quarter can be four or five months behind just before its next
+update, so 6 accepts such devices, while 3 accepts only devices updated every month. The patch level is the vendor's
+claim: one that ships it without the fixes isn't caught.
 
 **Operating system.** The boot state MUST be one of:
 
