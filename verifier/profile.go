@@ -32,13 +32,13 @@ type Key struct {
 	// statement's upper bound.
 	Created *time.Time    `json:"created,omitzero"`
 	MaxAge  time.Duration `json:"-"`
-	// The statement's upper bound must be from PlausibleFrom and before StaleFrom, if set: limits on the evidence
-	// besides its validity (for example, an attested patch level that is in the future, or too old, at that
-	// time). ImplausibleReason and StaleReason say why, for the error.
-	PlausibleFrom     time.Time `json:"plausibleFrom,omitzero"`
-	ImplausibleReason string    `json:"-"`
-	StaleFrom         time.Time `json:"staleFrom,omitzero"`
-	StaleReason       string    `json:"-"`
+	// Limits besides the evidence's validity, each if set: the statement's upper bound must be at or after
+	// AcceptedFrom, and before AcceptedUntil (for example, while the attested patch levels are neither in the
+	// future nor too old). The reasons say why, for the error when the upper bound is outside.
+	AcceptedFrom        time.Time `json:"acceptedFrom,omitzero"`
+	AcceptedFromReason  string    `json:"-"`
+	AcceptedUntil       time.Time `json:"acceptedUntil,omitzero"`
+	AcceptedUntilReason string    `json:"-"`
 	// Description is a few lines for people.
 	Description []string `json:"description"`
 }

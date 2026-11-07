@@ -523,11 +523,11 @@ func (v *Verifier) policy(n *Result, now time.Time) error {
 		}
 		return fmt.Errorf("its key evidence wasn't valid at its upper time bound %v", upper.UTC())
 	}
-	if p := n.Key.PlausibleFrom; !p.IsZero() && upper.Before(p) {
-		return fmt.Errorf("%s at its upper time bound %v", n.Key.ImplausibleReason, upper.UTC())
+	if from := n.Key.AcceptedFrom; !from.IsZero() && upper.Before(from) {
+		return fmt.Errorf("%s at its upper time bound %v", n.Key.AcceptedFromReason, upper.UTC())
 	}
-	if s := n.Key.StaleFrom; !s.IsZero() && !upper.Before(s) {
-		return fmt.Errorf("%s at its upper time bound %v", n.Key.StaleReason, upper.UTC())
+	if until := n.Key.AcceptedUntil; !until.IsZero() && !upper.Before(until) {
+		return fmt.Errorf("%s at its upper time bound %v", n.Key.AcceptedUntilReason, upper.UTC())
 	}
 	if max := n.Key.MaxAge; max > 0 {
 		c := n.Key.Created

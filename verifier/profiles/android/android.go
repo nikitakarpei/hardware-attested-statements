@@ -269,20 +269,20 @@ func (p *Profile) VerifyKey(raw jsontext.Value, trusted []jsontext.Value, settin
 		if l.level == 0 {
 			continue
 		}
-		if from := monthStart(patchMonth(l.level), -maxPatchLead); from.After(key.PlausibleFrom) {
-			key.PlausibleFrom = from
-			key.ImplausibleReason = fmt.Sprintf("the device's %s patch level %d is in the future", l.name, l.level)
+		if from := monthStart(patchMonth(l.level), -maxPatchLead); from.After(key.AcceptedFrom) {
+			key.AcceptedFrom = from
+			key.AcceptedFromReason = fmt.Sprintf("the device's %s patch level %d is in the future", l.name, l.level)
 		}
 	}
 	if n := *s.MaxPatchAgeMonths; n > 0 {
 		// Accepted while the upper bound's month is at most n months after the patch level's (checkDevice has
 		// checked it is present and well-formed).
-		key.StaleFrom = monthStart(patchMonth(dev.OSPatchLevel), int(n)+1)
+		key.AcceptedUntil = monthStart(patchMonth(dev.OSPatchLevel), int(n)+1)
 		months := "months"
 		if n == 1 {
 			months = "month"
 		}
-		key.StaleReason = fmt.Sprintf("the device's OS patch level %d is more than %d %s old", dev.OSPatchLevel, n, months)
+		key.AcceptedUntilReason = fmt.Sprintf("the device's OS patch level %d is more than %d %s old", dev.OSPatchLevel, n, months)
 	}
 	for _, c := range all {
 		if c.NotBefore.After(key.ValidFrom) {

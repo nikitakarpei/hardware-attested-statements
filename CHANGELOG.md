@@ -11,8 +11,8 @@ Each release has a section `## <version> (<date>)`, used as its release notes. V
   rejected; set either to 0 to turn it off.
 - Android profile: patch levels whose month isn't 1 to 12, or that are more than a month after the statement's
   upper time bound, are rejected.
-- Verifier: reports the Android version; `Key.PlausibleFrom` and `Key.StaleFrom` say between when the patch levels
-  are accepted.
+- Verifier: reports the Android version; `Key.AcceptedFrom` and `Key.AcceptedUntil` say between when the patch
+  levels are accepted.
 
 ## 0.1.0 (2026-11-05)
 
