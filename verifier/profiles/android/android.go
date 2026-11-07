@@ -46,7 +46,20 @@ type Settings struct {
 	OS                      *OSSetting `json:"os"`
 	MaxListAgeHours         *int64     `json:"maxListAgeHours"`
 	MaxKeyAgeHours          int64      `json:"maxKeyAgeHours"`
+	MaxPatchAgeMonths       *int64     `json:"maxPatchAgeMonths"`
+	MinOSVersion            *int64     `json:"minOsVersion"`
 }
+
+// Defaults of the settings that have one other than zero.
+const (
+	DefaultMaxListAgeHours   = 48
+	DefaultMaxPatchAgeMonths = 6
+	DefaultMinOSVersion      = 140000 // Android 14
+
+	// A patch level may be at most this many months after the statement's upper bound: vendors get bulletins
+	// ahead of publication, and some ship them in the last days of the month before.
+	maxPatchLead = 1
+)
 
 // OSSetting says which operating systems to accept: the device's stock OS (verified by its own boot chain), and
 // alternative OSes whose verified boot key is on one of the named lists. Both members are required.
@@ -99,6 +112,9 @@ func (p *Profile) Name() string { return Name }
 func (p *Profile) settings(raw jsontext.Value) (*Settings, error) {
 	s := &Settings{}
 	if len(raw) > 0 {
+		if t := bytes.TrimSpace(raw); len(t) == 0 || t[0] != '{' {
+			return nil, errors.New("android settings: must be an object (leave them out for the defaults)")
+		}
 		if err := verifier.UnmarshalStrict(raw, s); err != nil {
 			return nil, fmt.Errorf("android settings: %w", err)
 		}
@@ -118,7 +134,19 @@ func (p *Profile) settings(raw jsontext.Value) (*Settings, error) {
 		}
 	}
 	if s.MaxListAgeHours == nil {
-		s.MaxListAgeHours = new(int64(48))
+		s.MaxListAgeHours = new(int64(DefaultMaxListAgeHours))
+	}
+	if s.MaxPatchAgeMonths == nil {
+		s.MaxPatchAgeMonths = new(int64(DefaultMaxPatchAgeMonths))
+	}
+	if s.MinOSVersion == nil {
+		s.MinOSVersion = new(int64(DefaultMinOSVersion))
+	}
+	if m := *s.MaxPatchAgeMonths; m < 0 || m > 1200 {
+		return nil, fmt.Errorf("android settings: maxPatchAgeMonths %d isn't from 0 to 1200", m)
+	}
+	if v := *s.MinOSVersion; v != 0 && (v < 10000 || v > 999999) {
+		return nil, fmt.Errorf("android settings: minOsVersion %d isn't MMmmpp (140000 is Android 14) or 0", v)
 	}
 	if *s.MaxListAgeHours <= 0 || s.MaxKeyAgeHours < 0 {
 		return nil, errors.New("android settings: maxListAgeHours must be positive, and maxKeyAgeHours not negative")
@@ -235,6 +263,18 @@ func (p *Profile) VerifyKey(raw jsontext.Value, trusted []jsontext.Value, settin
 	}
 	key := &verifier.Key{PublicKey: pub, Signer: app, Device: dev, ValidFrom: all[0].NotBefore, ValidUntil: all[0].NotAfter,
 		Created: dev.KeyCreated, MaxAge: time.Duration(s.MaxKeyAgeHours) * time.Hour}
+	// No patch level may be more than maxPatchLead months after the upper bound's month (checkDevice has checked
+	// the levels present are well-formed).
+	for _, level := range []int64{dev.OSPatchLevel, dev.VendorPatchLevel, dev.BootPatchLevel} {
+		if from := monthStart(patchMonth(level), -maxPatchLead); level != 0 && from.After(key.AcceptedFrom) {
+			key.AcceptedFrom = from
+		}
+	}
+	if n := *s.MaxPatchAgeMonths; n > 0 {
+		// Accepted while the upper bound's month is at most n months after the patch level's (checkDevice has
+		// checked it is present and well-formed).
+		key.AcceptedUntil = monthStart(patchMonth(dev.OSPatchLevel), int(n)+1)
+	}
 	for _, c := range all {
 		if c.NotBefore.After(key.ValidFrom) {
 			key.ValidFrom = c.NotBefore
@@ -249,8 +289,9 @@ func (p *Profile) VerifyKey(raw jsontext.Value, trusted []jsontext.Value, settin
 	}
 	key.Description = []string{
 		fmt.Sprintf("app %s, versionCode %d (signing certificate %s)", app.Package, app.VersionCode, strings.Join(app.SigningCertificates, ", ")),
-		fmt.Sprintf("key in %s (%s attestation), created %s; bootloader locked; %s OS (%s); patches: OS %d, vendor %d, boot %d",
-			dev.KeyStorage, dev.Provisioning, created, dev.OS, dev.BootState, dev.OSPatchLevel, dev.VendorPatchLevel, dev.BootPatchLevel),
+		fmt.Sprintf("key in %s (%s attestation), created %s; bootloader locked; %s OS (%s), Android %s; patches: OS %d, vendor %d, boot %d",
+			dev.KeyStorage, dev.Provisioning, created, dev.OS, dev.BootState, osVersionString(dev.OSVersion), dev.OSPatchLevel,
+			dev.VendorPatchLevel, dev.BootPatchLevel),
 	}
 	return key, nil
 }
@@ -343,6 +384,15 @@ func (p *Profile) checkDevice(kd *KeyDescription, ci *chainInfo, s *Settings, no
 	hw := kd.Hardware
 	d.OSVersion, d.OSPatchLevel = get(hw.OSVersion), get(hw.OSPatchLevel)
 	d.VendorPatchLevel, d.BootPatchLevel = get(hw.VendorPatchLevel), get(hw.BootPatchLevel)
+	if min := *s.MinOSVersion; min > 0 && d.OSVersion < min {
+		if hw.OSVersion == nil || d.OSVersion == 0 {
+			return nil, fmt.Errorf("the attestation states no OS version, and the policy requires at least %s", osVersionString(min))
+		}
+		return nil, fmt.Errorf("the device runs Android %s, older than the %s the policy requires", osVersionString(d.OSVersion), osVersionString(min))
+	}
+	if *s.MaxPatchAgeMonths > 0 && hw.OSPatchLevel == nil {
+		return nil, errors.New("no OS patch level, and the policy limits its age")
+	}
 	for _, c := range []struct {
 		name string
 		got  *int64
@@ -355,12 +405,8 @@ func (p *Profile) checkDevice(kd *KeyDescription, ci *chainInfo, s *Settings, no
 			}
 			continue
 		}
-		month := *c.got // YYYYMM or YYYYMMDD
-		switch {
-		case month >= 100000 && month <= 999999:
-		case month >= 10000000 && month <= 99999999:
-			month /= 100
-		default:
+		month := patchMonth(*c.got)
+		if month == 0 {
 			return nil, fmt.Errorf("%s patch level %d is neither YYYYMM nor YYYYMMDD", c.name, *c.got)
 		}
 		if c.min > 0 && month < c.min {
@@ -409,4 +455,37 @@ func checkApp(kd *KeyDescription, trusted []jsontext.Value) (*App, error) {
 		}
 	}
 	return nil, reason
+}
+
+// patchMonth is an attested patch level's YYYYMM, from YYYYMM or YYYYMMDD; 0 if it is neither, or its month isn't
+// 1 to 12.
+func patchMonth(level int64) int64 {
+	switch {
+	case level >= 100000 && level <= 999999:
+	case level >= 10000000 && level <= 99999999:
+		level /= 100
+	default:
+		return 0
+	}
+	if m := level % 100; m < 1 || m > 12 {
+		return 0
+	}
+	return level
+}
+
+// monthStart is the start (UTC) of the month n months after month (YYYYMM).
+func monthStart(month int64, n int) time.Time {
+	return time.Date(int(month/100), time.Month(month%100)+time.Month(n), 1, 0, 0, 0, 0, time.UTC)
+}
+
+// osVersionString shows an attested OS version (MMmmpp) as Android does: 140000 is "14", 120100 "12.1".
+func osVersionString(v int64) string {
+	major, minor, patch := v/10000, v/100%100, v%100
+	switch {
+	case patch != 0:
+		return fmt.Sprintf("%d.%d.%d", major, minor, patch)
+	case minor != 0:
+		return fmt.Sprintf("%d.%d", major, minor)
+	}
+	return fmt.Sprint(major)
 }

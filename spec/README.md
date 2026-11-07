@@ -302,8 +302,7 @@ The policy says what to trust:
   "predicateTypes": {
     "<URI>": { "trustedSigners": [{ "profile": "android", … }],
                "requireTimestamp": true, "requireStartedAfter": true, "allowUnverifiedInputs": false,
-               "profiles": { "android": { … } } } },
-  "profiles": { "android": { … } } }
+               "profiles": { "android": { … } } } } }
 ```
 
 - `timestampAuthorities`, `drandChains` (REQUIRED, and can be empty): which TSAs and drand chains to trust: built-in
@@ -319,10 +318,8 @@ The policy says what to trust:
   - `requireTimestamp`, `requireStartedAfter`: the statement MUST have that bound after propagation (section 4).
   - `allowUnverifiedInputs` (default false): a statement of this type is accepted although some of the inputs it
     lists aren't; they MUST still be reported.
-  - `profiles`: settings for this predicate type, merged over the global ones member by member: a member given here
-    replaces the global one, and members not given keep the global value (or, without one, the default). A member
-    whose value is an object is replaced as a whole, and MUST then be complete.
-- `profiles`: each profile's settings.
+  - `profiles`: each profile's settings for this predicate type, an object; members not given take the profile's
+    defaults. There are no policy-wide settings, so that each type's requirements are stated where they apply.
 
 ## 6. HTTP binding
 

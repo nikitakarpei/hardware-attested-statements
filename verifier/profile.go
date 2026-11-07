@@ -32,6 +32,11 @@ type Key struct {
 	// statement's upper bound.
 	Created *time.Time    `json:"created,omitzero"`
 	MaxAge  time.Duration `json:"-"`
+	// Limits besides the evidence's validity, each if set: the statement's upper bound must be at or after
+	// AcceptedFrom, and before AcceptedUntil (for example, while the attested patch levels are neither in the
+	// future nor too old).
+	AcceptedFrom  time.Time `json:"acceptedFrom,omitzero"`
+	AcceptedUntil time.Time `json:"acceptedUntil,omitzero"`
 	// Description is a few lines for people.
 	Description []string `json:"description"`
 }

@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"slices"
 	"strings"
@@ -83,12 +84,53 @@ func keyDescription(pkg string, versionCode int64, signer []byte, purposes []byt
 
 // keyDescriptionWithRoot is keyDescription with the given root of trust (boot key, lock and boot state).
 func keyDescriptionWithRoot(pkg string, versionCode int64, signer []byte, purposes []byte, rot []byte, extra ...[]byte) []byte {
+	return keyDescriptionOS(pkg, versionCode, signer, purposes, rot, fakeOS{version: fakeOSVersion, patch: fakePatchMonth(0)}, extra...)
+}
+
+// The fake device runs Android 16, patched this month (so that the default maxPatchAgeMonths accepts it whenever
+// the tests run); fakePatchMonth(n) is the YYYYMM n months later.
+const fakeOSVersion = 160000
+
+func fakePatchMonth(n int) int64 {
+	now := time.Now().UTC()
+	t := time.Date(now.Year(), now.Month()+time.Month(n), 1, 0, 0, 0, 0, time.UTC)
+	return int64(t.Year()*100 + int(t.Month()))
+}
+
+// fakeOS is what an attestation states about the OS.
+type fakeOS struct {
+	version       int64
+	patch         int64 // OS patch level, YYYYMM; 0: none
+	firmwarePatch int64 // vendor and boot patch levels, YYYYMM (stated as its 5th day); 0: the same as patch
+	bootPatch     int64 // boot patch level instead, YYYYMM; 0: the same as firmwarePatch
+	inSoftware    bool  // the OS version and patch level are in the software-enforced list
+}
+
+// keyDescriptionOS is keyDescriptionWithRoot with the given OS version and patch levels.
+func keyDescriptionOS(pkg string, versionCode int64, signer []byte, purposes []byte, rot []byte, os fakeOS, extra ...[]byte) []byte {
 	appID := seq(set(seq(octets([]byte(pkg)), integer(versionCode))), set(octets(signer)))
 	hw := cat(explicit(1, purposes), explicit(2, integer(3)), explicit(5, set(integer(4))), explicit(10, integer(1)))
-	hw = cat(hw, cat(extra...), explicit(702, integer(0)), explicit(704, rot), explicit(705, integer(160000)),
-		explicit(706, integer(202610)), explicit(718, integer(20261005)), explicit(719, integer(20261005)))
+	osTags := explicit(705, integer(os.version))
+	if os.patch != 0 {
+		osTags = cat(osTags, explicit(706, integer(os.patch)))
+	}
+	sw := seq(explicit(701, integer(1762130000000)), explicit(709, octets(appID)))
+	if os.inSoftware {
+		sw = seq(explicit(701, integer(1762130000000)), osTags, explicit(709, octets(appID)))
+		osTags = nil
+	}
+	firmware := os.firmwarePatch
+	if firmware == 0 {
+		firmware = os.patch
+	}
+	boot := os.bootPatch
+	if boot == 0 {
+		boot = firmware
+	}
+	hw = cat(hw, cat(extra...), explicit(702, integer(0)), explicit(704, rot), osTags,
+		explicit(718, integer(firmware*100+5)), explicit(719, integer(boot*100+5)))
 	return seq(integer(300), enumerated(2), integer(300), enumerated(2), octets([]byte(android.KeyChallenge)), octets(nil),
-		seq(explicit(701, integer(1762130000000)), explicit(709, octets(appID))), tlv(0, 16, true, hw))
+		sw, tlv(0, 16, true, hw))
 }
 
 type fakeOptions struct {
@@ -508,16 +550,44 @@ func TestAndroidKeyChecks(t *testing.T) {
 		opts    fakeOptions
 		ok      bool
 		setting string
+		want    string // in the error
 	}{
-		"rkp StrongBox":                          {opts: o, ok: true},
-		"factory provisioned":                    {opts: fakeOptions{pkg: o.pkg, signer: o.signer, factory: true}},
-		"factory provisioned, allowed":           {opts: fakeOptions{pkg: o.pkg, signer: o.signer, factory: true}, ok: true, setting: `{"allowFactoryProvisioned": true}`},
-		"purposes SIGN and VERIFY":               {opts: fakeOptions{pkg: o.pkg, signer: o.signer, extension: kd(set(integer(2), integer(3)))}},
-		"usage expiry":                           {opts: fakeOptions{pkg: o.pkg, signer: o.signer, extension: kd(set(integer(2)), explicit(402, integer(1)))}},
-		"active date":                            {opts: fakeOptions{pkg: o.pkg, signer: o.signer, extension: kd(set(integer(2)), explicit(400, integer(1)))}},
-		"vendor patch too old":                   {opts: o, setting: `{"minVendorPatchLevel": 202611}`},
-		"boot patch too old":                     {opts: o, setting: `{"minBootPatchLevel": 202611}`},
-		"boot patch new enough":                  {opts: o, ok: true, setting: `{"minBootPatchLevel": 202610}`},
+		"rkp StrongBox":                     {opts: o, ok: true},
+		"factory provisioned":               {opts: fakeOptions{pkg: o.pkg, signer: o.signer, factory: true}},
+		"factory provisioned, allowed":      {opts: fakeOptions{pkg: o.pkg, signer: o.signer, factory: true}, ok: true, setting: `{"allowFactoryProvisioned": true}`},
+		"purposes SIGN and VERIFY":          {opts: fakeOptions{pkg: o.pkg, signer: o.signer, extension: kd(set(integer(2), integer(3)))}},
+		"usage expiry":                      {opts: fakeOptions{pkg: o.pkg, signer: o.signer, extension: kd(set(integer(2)), explicit(402, integer(1)))}},
+		"active date":                       {opts: fakeOptions{pkg: o.pkg, signer: o.signer, extension: kd(set(integer(2)), explicit(400, integer(1)))}},
+		"vendor patch too old":              {opts: o, setting: fmt.Sprintf(`{"minVendorPatchLevel": %d}`, fakePatchMonth(1))},
+		"boot patch too old":                {opts: o, setting: fmt.Sprintf(`{"minBootPatchLevel": %d}`, fakePatchMonth(1))},
+		"boot patch new enough":             {opts: o, ok: true, setting: fmt.Sprintf(`{"minBootPatchLevel": %d}`, fakePatchMonth(0))},
+		"Android 14 by default":             {opts: withOS(o, 140000, fakePatchMonth(0)), ok: true},
+		"Android 13 by default":             {opts: withOS(o, 130000, fakePatchMonth(0)), want: "Android 13, older than the 14"},
+		"Android 13, allowed":               {opts: withOS(o, 130000, fakePatchMonth(0)), ok: true, setting: `{"minOsVersion": 130000}`},
+		"no OS version":                     {opts: withOS(o, 0, fakePatchMonth(0)), want: "states no OS version"},
+		"no OS version, no minimum":         {opts: withOS(o, 0, fakePatchMonth(0)), ok: true, setting: `{"minOsVersion": 0}`},
+		"Android 16 below 16.1":             {opts: o, setting: `{"minOsVersion": 160100}`, want: "older than the 16.1"},
+		"OS version only software-enforced": {opts: withDevice(o, fakeOS{version: fakeOSVersion, patch: fakePatchMonth(0), inSoftware: true}), want: "states no OS version"},
+		"OS version only software-enforced, no minimum": {opts: withDevice(o, fakeOS{version: fakeOSVersion, patch: fakePatchMonth(0), inSoftware: true}),
+			setting: `{"minOsVersion": 0}`, want: "no OS patch level"},
+		"no OS patch level":                     {opts: withDevice(o, fakeOS{version: fakeOSVersion, firmwarePatch: fakePatchMonth(0)}), want: "no OS patch level"},
+		"no OS patch level, age not limited":    {opts: withDevice(o, fakeOS{version: fakeOSVersion, firmwarePatch: fakePatchMonth(0)}), ok: true, setting: `{"maxPatchAgeMonths": 0}`},
+		"OS patch next month":                   {opts: withOS(o, fakeOSVersion, fakePatchMonth(1)), ok: true},
+		"OS patch in 2 months":                  {opts: withOS(o, fakeOSVersion, fakePatchMonth(2)), want: "starts accepting"},
+		"OS patch in 2 months, age not limited": {opts: withOS(o, fakeOSVersion, fakePatchMonth(2)), setting: `{"maxPatchAgeMonths": 0}`, want: "starts accepting"},
+		"only OS patch in 2 months": {opts: withDevice(o, fakeOS{version: fakeOSVersion, patch: fakePatchMonth(2), firmwarePatch: fakePatchMonth(0)}),
+			want: "starts accepting"},
+		"only vendor patch in 2 months": {opts: withDevice(o, fakeOS{version: fakeOSVersion, patch: fakePatchMonth(0), firmwarePatch: fakePatchMonth(2),
+			bootPatch: fakePatchMonth(0)}), want: "starts accepting"},
+		"only boot patch in 2 months": {opts: withDevice(o, fakeOS{version: fakeOSVersion, patch: fakePatchMonth(0), bootPatch: fakePatchMonth(2)}),
+			want: "starts accepting"},
+		"patch 6 months old by default":          {opts: withOS(o, fakeOSVersion, fakePatchMonth(-6)), ok: true},
+		"patch 7 months old by default":          {opts: withOS(o, fakeOSVersion, fakePatchMonth(-7)), want: "stops accepting"},
+		"patch 7 months old, 12 allowed":         {opts: withOS(o, fakeOSVersion, fakePatchMonth(-7)), ok: true, setting: `{"maxPatchAgeMonths": 12}`},
+		"patch 7 months old, age not limited":    {opts: withOS(o, fakeOSVersion, fakePatchMonth(-7)), ok: true, setting: `{"maxPatchAgeMonths": 0}`},
+		"patch last month, 1 month allowed":      {opts: withOS(o, fakeOSVersion, fakePatchMonth(-1)), ok: true, setting: `{"maxPatchAgeMonths": 1}`},
+		"patch 2 months old, 1 month allowed":    {opts: withOS(o, fakeOSVersion, fakePatchMonth(-2)), setting: `{"maxPatchAgeMonths": 1}`, want: "stops accepting"},
+		"patch in a month 13":                    {opts: withOS(o, fakeOSVersion, 202613), want: "neither YYYYMM nor YYYYMMDD"},
 		"stock OS not accepted (per-type empty)": {opts: o, setting: `{"os": {"stock": false, "bootKeyLists": ["grapheneos"]}}`},
 	}
 	for name, c := range cases {
@@ -525,7 +595,7 @@ func TestAndroidKeyChecks(t *testing.T) {
 			k := newFakeKey(t, c.opts)
 			s := newDerivedSetup(t, "")
 			if c.setting != "" {
-				// Per predicate type, replacing the (default) global settings.
+				// The derived type's own settings.
 				s.params.extraTypes = strings.Replace(s.params.extraTypes, `"trustedSigners"`, `"profiles": {"android": `+c.setting+`}, "trustedSigners"`, 1)
 			}
 			s.trust.Roots = append(s.trust.Roots, k.root)
@@ -534,11 +604,79 @@ func TestAndroidKeyChecks(t *testing.T) {
 			if c.ok != (err == nil) {
 				t.Fatalf("ok %v, err %v", c.ok, err)
 			}
+			if err != nil && !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("err %v, want it to say %q", err, c.want)
+			}
 			if err == nil && r.Key.Device.(*android.Device).KeyCreated == nil {
 				t.Error("no key creation time")
 			}
 			t.Log(err)
 		})
+	}
+}
+
+// withOS is o with an attestation stating the given OS version and patch level (also its vendor and boot ones).
+func withOS(o fakeOptions, osVersion, patch int64) fakeOptions {
+	return withDevice(o, fakeOS{version: osVersion, patch: patch})
+}
+
+// withDevice is o with an attestation stating os.
+func withDevice(o fakeOptions, os fakeOS) fakeOptions {
+	rot := seq(octets(make([]byte, 32)), tlv(0, 1, false, []byte{0xff}), enumerated(0), octets(make([]byte, 32)))
+	o.extension = keyDescriptionOS(o.pkg, 1, o.signer, set(integer(2)), rot, os)
+	return o
+}
+
+// A patch level may be at most a month after the statement's upper bound: a statement time-stamped last month
+// with this month's patch level is accepted, and one time-stamped two months ago isn't.
+func TestFuturePatchAtUpperBound(t *testing.T) {
+	s := newDerivedSetup(t, "")
+	signer := sha256.Sum256([]byte("derived app signing certificate"))
+	now := time.Now().UTC()
+	k := newFakeKey(t, withOS(fakeOptions{pkg: "org.example.derived", signer: signer[:],
+		notBefore: now.AddDate(0, -3, 0), notAfter: now.Add(24 * time.Hour)}, fakeOSVersion, fakePatchMonth(0)))
+	s.trust.Roots = append(s.trust.Roots, k.root)
+	v := mustVerifier(t, s.params.policy(t), s.trust)
+	b := signBundle(t, statement(derivedType, ""), k.key, k.chain)
+	thisMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	// The upper bound is the token's time plus at least a second: exactly when last month starts (accepted),
+	// and a second before (not).
+	s.tsa.stamp(t, b, thisMonth.AddDate(0, -1, 0).Add(-time.Second), 0)
+	if _, err := v.Verify(b); err != nil {
+		t.Errorf("upper bound at the start of last month: %v", err)
+	}
+	s.tsa.stamp(t, b, thisMonth.AddDate(0, -1, 0).Add(-2*time.Second), 0)
+	if _, err := v.Verify(b); err == nil || !strings.Contains(err.Error(), "starts accepting") {
+		t.Errorf("upper bound a second before last month: %v", err)
+	}
+}
+
+// The patch level's age is measured at the statement's upper bound, not at verification time: a statement
+// time-stamped while the patch level was recent enough stays valid, and one time-stamped later doesn't.
+func TestPatchAgeAtUpperBound(t *testing.T) {
+	s := newDerivedSetup(t, "")
+	signer := sha256.Sum256([]byte("derived app signing certificate"))
+	now := time.Now().UTC()
+	// Patched in the month 6 months before last month: too old now, but not last month.
+	k := newFakeKey(t, withOS(fakeOptions{pkg: "org.example.derived", signer: signer[:],
+		notBefore: now.AddDate(0, -3, 0), notAfter: now.Add(24 * time.Hour)}, fakeOSVersion, fakePatchMonth(-7)))
+	s.trust.Roots = append(s.trust.Roots, k.root)
+	v := mustVerifier(t, s.params.policy(t), s.trust)
+	b := signBundle(t, statement(derivedType, ""), k.key, k.chain)
+	// The upper bound is the token's time plus at least a second: a second before this month starts (accepted),
+	// and exactly when it starts (not).
+	thisMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	s.tsa.stamp(t, b, thisMonth.Add(-2*time.Second), 0)
+	if _, err := v.Verify(b); err != nil {
+		t.Errorf("upper bound a second before this month: %v", err)
+	}
+	s.tsa.stamp(t, b, thisMonth.Add(-time.Second), 0)
+	if _, err := v.Verify(b); err == nil || !strings.Contains(err.Error(), "stops accepting") {
+		t.Errorf("upper bound at the start of this month: %v", err)
+	}
+	s.tsa.stamp(t, b, now.Truncate(time.Second), 0)
+	if _, err := v.Verify(b); err == nil || !strings.Contains(err.Error(), "stops accepting") {
+		t.Errorf("time-stamped once the patch level was too old: %v", err)
 	}
 }
 

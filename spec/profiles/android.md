@@ -65,7 +65,7 @@ A verifier MUST reject the key unless:
      the validity tags (activeDateTime, originationExpireDateTime, usageExpireDateTime), all hardware-enforced;
    - attestation and KeyMint security levels equal, TEE or StrongBox, matching the chain (below);
    - a hardware-enforced root of trust with the bootloader locked and an accepted OS (below);
-   - patch levels meeting the policy (below);
+   - an OS version and patch levels meeting the policy (below);
    - an attestation application ID with exactly one package, and at least one signing-certificate digest, matching a
      policy entry.
 5. **The signing key** is the leaf's public key: id-ecPublicKey on prime256v1, uncompressed point.
@@ -83,10 +83,22 @@ key:
 The attestation's security level MUST equal the one the chain states. Leaked attestation keys come from
 factory-provisioned devices, so factory chains are rejected, at any security level, unless the policy allows them.
 
-**Patch levels** are read from the hardware-enforced list. The `min…PatchLevel` settings are YYYYMM, and are
-compared with the attested level's year and month (`osPatchLevel` is YYYYMM; `vendorPatchLevel` and `bootPatchLevel`
-are YYYYMMDD, or YYYYMM on some devices). An attested level of neither six nor eight digits is rejected, and a
-missing level fails any minimum above 0.
+**OS version and patch levels** are read from the hardware-enforced list.
+
+`osVersion` is MMmmpp (140000 is Android 14) and MUST be at least `minOsVersion`; a missing or 0 version fails any
+nonzero minimum.
+
+The `min…PatchLevel` settings are YYYYMM, compared with the attested level's year and month (`osPatchLevel` is
+YYYYMM; `vendorPatchLevel` and `bootPatchLevel` are YYYYMMDD, or YYYYMM on some devices). A level of neither six nor
+eight digits, or with a month outside 1 to 12, is rejected; a missing level fails any nonzero minimum. A level's
+month MUST NOT be more than one month after the month of the statement's upper bound (core spec section 4), in UTC:
+vendors ship patches early, but not by more.
+
+With `maxPatchAgeMonths` above 0, the statement's upper bound (core spec section 4) MUST fall, in UTC, at most that
+many calendar months after the month of `osPatchLevel` (6 and 202605: until the end of November 2026), and a missing
+`osPatchLevel` is rejected. This rejects devices that stopped getting updates; 6 accepts devices updated quarterly.
+The patch level is the one when the key was created (section Key), and is the vendor's claim, not proof of the
+fixes.
 
 **Operating system.** The boot state MUST be one of:
 
@@ -121,24 +133,24 @@ The version is the one that created the key, so `versionCodes` keeps other versi
 version signed with these certificates makes its own key (section Key), which a verifier can't check;
 `maxKeyAgeHours` limits how long an older key stays usable.
 
-Settings go under `profiles.android`, globally and per predicate type, merged over the global ones member by member
-(core spec section 5):
+Settings go under `profiles.android` of each predicate type (core spec section 5):
 
 ```json
 { "requireStrongBox": false, "allowFactoryProvisioned": false,
   "minOsPatchLevel": 0, "minVendorPatchLevel": 0, "minBootPatchLevel": 0,
+  "minOsVersion": 140000, "maxPatchAgeMonths": 6,
   "os": { "stock": true, "bootKeyLists": ["grapheneos"] }, "maxListAgeHours": 48 }
 ```
 
-Without settings, these are the defaults.
+Without settings, or for members not given, these are the defaults.
 
 - `maxListAgeHours` applies to every list: the revocation list and boot-key lists.
+- `minOsVersion` (0, or 10000 to 999999) and `maxPatchAgeMonths` (0 to 1200): 0 turns the check off.
 - `maxKeyAgeHours` (no default), if set, rejects keys created longer ago than that before the statement's upper
   bound, as their attestation shows (creationDateTime, set by the device's OS and clock). With it set, a missing
   creationDateTime, or one later than the upper bound, is rejected.
-- `os` is replaced as a whole, MUST have both members, and MUST accept at least one OS:
-  `{"stock": false, "bootKeyLists": ["grapheneos"]}` accepts only GrapheneOS, whose devices (Pixels) have boot
-  chains GrapheneOS vets.
+- `os` MUST have both members, and MUST accept at least one OS: `{"stock": false, "bootKeyLists": ["grapheneos"]}`
+  accepts only GrapheneOS, whose devices (Pixels) have boot chains GrapheneOS vets.
 
 ## What a verifier reports
 
@@ -148,7 +160,7 @@ A verifier MUST report the following, all as the attestation states them, as of 
 - the app's package, versionCode and signing certificates;
 - where the key is (StrongBox or TEE), and how the device was provisioned;
 - the boot state, the verified boot key, and the OS (stock, or which list);
-- the OS, vendor and boot patch levels.
+- the Android version, and the OS, vendor and boot patch levels.
 
 It MUST also report when the lists used were obtained.
 

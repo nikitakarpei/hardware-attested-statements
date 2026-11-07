@@ -144,3 +144,18 @@ func TestAOSPTestKeyFingerprints(t *testing.T) {
 		}
 	}
 }
+
+// Settings outside their ranges are policy errors, among them a minOsVersion written as a major version.
+func TestSettingsRanges(t *testing.T) {
+	p := New(&Trust{BootKeyLists: map[string]*BootKeyList{"grapheneos": {}}})
+	for raw, ok := range map[string]bool{
+		`{}`: true, `{"minOsVersion": 0}`: true, `{"minOsVersion": 10000}`: true, `{"minOsVersion": 999999}`: true,
+		`{"minOsVersion": 14}`: false, `{"minOsVersion": 9999}`: false, `{"minOsVersion": 1000000}`: false,
+		`{"minOsVersion": -1}`: false, `{"maxPatchAgeMonths": 0}`: true, `{"maxPatchAgeMonths": 1200}`: true,
+		`{"maxPatchAgeMonths": -1}`: false, `{"maxPatchAgeMonths": 1201}`: false,
+	} {
+		if err := p.CheckPolicy(nil, []byte(raw)); (err == nil) != ok {
+			t.Errorf("%s: ok %v, err %v", raw, ok, err)
+		}
+	}
+}

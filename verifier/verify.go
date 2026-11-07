@@ -63,16 +63,6 @@ func New(policy *Policy, profiles ...Profile) (*Verifier, error) {
 		}
 		v.DistrustedDrand[c.Hash] = true
 	}
-	for name := range policy.Profiles {
-		if _, ok := v.Profiles[name]; !ok {
-			return nil, fmt.Errorf("policy: profiles: unknown profile %q", name)
-		}
-	}
-	for name, p := range v.Profiles {
-		if err := p.CheckPolicy(nil, policy.Profiles[name]); err != nil {
-			return nil, fmt.Errorf("policy: %w", err)
-		}
-	}
 	for t, pp := range policy.PredicateTypes {
 		for _, raw := range pp.TrustedSigners {
 			name, err := profileOf(raw)
@@ -93,11 +83,7 @@ func New(policy *Policy, profiles ...Profile) (*Verifier, error) {
 			if err != nil {
 				return nil, err
 			}
-			settings, err := policy.settingsFor(pp, name)
-			if err != nil {
-				return nil, err
-			}
-			if err := p.CheckPolicy(entries, settings); err != nil {
+			if err := p.CheckPolicy(entries, pp.Profiles[name]); err != nil {
 				return nil, fmt.Errorf("policy: %s: %w", t, err)
 			}
 		}
@@ -482,10 +468,8 @@ func (v *Verifier) policy(n *Result, now time.Time) error {
 	if len(trusted) == 0 {
 		return fmt.Errorf("the policy trusts no %s signers for %s", n.Profile, st.PredicateType)
 	}
-	settings, err := v.Policy.settingsFor(pp, n.Profile)
-	if err != nil {
-		return err
-	}
+	settings := pp.Profiles[n.Profile]
+
 	// Time (spec section 4).
 	if pp.RequireTimestamp && n.NotAfter.IsZero() {
 		return errors.New("a time-stamp is required, on it or on a statement made from it")
@@ -533,6 +517,12 @@ func checkKeyAt(key *Key, upper time.Time, stamped bool) error {
 			return errors.New("its key evidence isn't valid now, and no time-stamp shows it was signed while it was")
 		}
 		return fmt.Errorf("its key evidence wasn't valid at its upper time bound %v", upper.UTC())
+	}
+	if from := key.AcceptedFrom; !from.IsZero() && upper.Before(from) {
+		return fmt.Errorf("its upper time bound %v is before %v, when the policy starts accepting its key", upper.UTC(), from.UTC())
+	}
+	if until := key.AcceptedUntil; !until.IsZero() && !upper.Before(until) {
+		return fmt.Errorf("its upper time bound %v is not before %v, when the policy stops accepting its key", upper.UTC(), until.UTC())
 	}
 	if max := key.MaxAge; max > 0 {
 		c := key.Created
