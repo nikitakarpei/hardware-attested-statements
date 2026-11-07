@@ -23,7 +23,7 @@ result, err := v.Verify(bundle, inputBundles...)  // plus input bundles presente
 
 A `Result` says between which times the statement was signed, and its `Key` what the profile established: for
 Android, an `android.App` (package, versionCode, signing certificates) and an `android.Device` (key storage,
-provisioning, OS, patch levels, key creation time). Its `Inputs` are the statement's listed inputs, each with its
+provisioning, OS, Android version, patch levels, key creation time). Its `Inputs` are the statement's listed inputs, each with its
 own `Result` if its bundle was presented, whether it's verified, and if not, why: provenance holds only along
 verified inputs (`UnverifiedInputs` lists them all). Profiles implement `verifier.Profile`; `profiles/android` is
 the first. What a statement *means* is up to its predicate type: `predicates/httpresponse` handles the

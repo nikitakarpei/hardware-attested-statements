@@ -65,7 +65,7 @@ A verifier MUST reject the key unless:
      the validity tags (activeDateTime, originationExpireDateTime, usageExpireDateTime), all hardware-enforced;
    - attestation and KeyMint security levels equal, TEE or StrongBox, matching the chain (below);
    - a hardware-enforced root of trust with the bootloader locked and an accepted OS (below);
-   - patch levels meeting the policy (below);
+   - an OS version and patch levels meeting the policy (below);
    - an attestation application ID with exactly one package, and at least one signing-certificate digest, matching a
      policy entry.
 5. **The signing key** is the leaf's public key: id-ecPublicKey on prime256v1, uncompressed point.
@@ -83,10 +83,27 @@ key:
 The attestation's security level MUST equal the one the chain states. Leaked attestation keys come from
 factory-provisioned devices, so factory chains are rejected, at any security level, unless the policy allows them.
 
-**Patch levels** are read from the hardware-enforced list. The `min…PatchLevel` settings are YYYYMM, and are
-compared with the attested level's year and month (`osPatchLevel` is YYYYMM; `vendorPatchLevel` and `bootPatchLevel`
-are YYYYMMDD, or YYYYMM on some devices). An attested level of neither six nor eight digits is rejected, and a
-missing level fails any minimum above 0.
+**OS version and patch levels** are read from the hardware-enforced list.
+
+`osVersion` is MMmmpp (140000 is Android 14, 120100 Android 12.1). It MUST be at least `minOsVersion`; an attested
+version that is missing or 0 (which devices report when they don't know it) fails any minimum above 0. Google only
+publishes security fixes for recent Android versions, so a device on an older one gets no fixes from Google even if
+its patch level says otherwise.
+
+The `min…PatchLevel` settings are YYYYMM, and are compared with the attested level's year and month (`osPatchLevel`
+is YYYYMM; `vendorPatchLevel` and `bootPatchLevel` are YYYYMMDD, or YYYYMM on some devices). An attested level of
+neither six nor eight digits, or whose month isn't 1 to 12, is rejected, and a missing level fails any minimum
+above 0.
+
+With `maxPatchAgeMonths` above 0, the key is accepted only for statements whose upper bound (core spec section 4)
+falls, in UTC, at most that many calendar months after the month of `osPatchLevel`: with 6 and a patch level of
+202605, until the end of November 2026. A missing `osPatchLevel` is then rejected. Unlike a fixed
+`minOsPatchLevel`, this needs no updates to the policy, and it catches devices that stopped getting updates,
+whether because their Android version or the device itself reached its end of life. Patch levels are the dates of
+Google's monthly bulletins, and since 2025 most fixes come only in quarterly ones; vendors ship them weeks later,
+and many devices are updated only quarterly. A device updated every quarter can be four or five months behind just
+before its next update, so 6 accepts such devices, while 3 accepts only devices updated every month. The patch level
+is the vendor's claim: one that ships it without the fixes isn't caught.
 
 **Operating system.** The boot state MUST be one of:
 
@@ -127,12 +144,15 @@ Settings go under `profiles.android`, globally and per predicate type, merged ov
 ```json
 { "requireStrongBox": false, "allowFactoryProvisioned": false,
   "minOsPatchLevel": 0, "minVendorPatchLevel": 0, "minBootPatchLevel": 0,
+  "minOsVersion": 140000, "maxPatchAgeMonths": 6,
   "os": { "stock": true, "bootKeyLists": ["grapheneos"] }, "maxListAgeHours": 48 }
 ```
 
 Without settings, these are the defaults.
 
 - `maxListAgeHours` applies to every list: the revocation list and boot-key lists.
+- `minOsVersion` (MMmmpp, from 0 to 999999) and `maxPatchAgeMonths` (from 0 to 1200): see above; 0 turns either
+  check off.
 - `maxKeyAgeHours` (no default), if set, rejects keys created longer ago than that before the statement's upper
   bound, as their attestation shows (creationDateTime, set by the device's OS and clock). With it set, a missing
   creationDateTime, or one later than the upper bound, is rejected.
@@ -148,7 +168,7 @@ A verifier MUST report the following, all as the attestation states them, as of 
 - the app's package, versionCode and signing certificates;
 - where the key is (StrongBox or TEE), and how the device was provisioned;
 - the boot state, the verified boot key, and the OS (stock, or which list);
-- the OS, vendor and boot patch levels.
+- the Android version, and the OS, vendor and boot patch levels.
 
 It MUST also report when the lists used were obtained.
 

@@ -523,6 +523,9 @@ func (v *Verifier) policy(n *Result, now time.Time) error {
 		}
 		return fmt.Errorf("its key evidence wasn't valid at its upper time bound %v", upper.UTC())
 	}
+	if s := n.Key.StaleFrom; !s.IsZero() && !upper.Before(s) {
+		return fmt.Errorf("%s at its upper time bound %v", n.Key.StaleReason, upper.UTC())
+	}
 	if max := n.Key.MaxAge; max > 0 {
 		c := n.Key.Created
 		switch {

@@ -257,6 +257,7 @@ func TestCaptureTampering(t *testing.T) {
 			p.extraTypes = `"urn:x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"]}]}`
 		})},
 		"patch level too old": {raw: example, params: params(func(p *policyParams) { p.androidSettings = `{"minOsPatchLevel": 202611}` })},
+		"Android too old":     {raw: example, params: params(func(p *policyParams) { p.androidSettings = `{"minOsVersion": 170000}` })},
 		"stock OS only":       {raw: example, params: params(func(p *policyParams) { p.androidSettings = `{"os": {"stock": true, "bootKeyLists": []}}` })},
 		"boot key on no list": {raw: example, trust: func(tr *android.Trust) {
 			tr.BootKeyLists["grapheneos"] = &android.BootKeyList{Keys: map[string]bool{}, Produced: time.Now()}
