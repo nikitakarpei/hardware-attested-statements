@@ -438,6 +438,11 @@ func TestPolicyMistakesAreErrors(t *testing.T) {
 		"bad android setting":      head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": {"requireStrongBoxx": true}}}}}`,
 		"case-folded setting":      head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": {"requireStrongbox": true}}}}}`,
 		"null settings":            head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": null}}}}`,
+		"null setting member":      head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": {"minOsPatchLevel": null}}}}}`,
+		"null profiles":            head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": null}}}`,
+		"null requireTimestamp":    head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "requireTimestamp": null}}}`,
+		"null in a signer":         head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": null}]}}}`,
+		"array settings":           head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": []}}}}`,
 		"zero list age":            head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": {"maxListAgeHours": 0}}}}}`,
 		"no OS accepted":           head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": {"os": {"stock": false, "bootKeyLists": []}}}}}}`,
 	} {

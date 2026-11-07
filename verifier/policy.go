@@ -1,12 +1,14 @@
 package verifier
 
 import (
+	"bytes"
 	"crypto/x509"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 )
 
@@ -66,6 +68,9 @@ func (e *TSAEntry) UnmarshalJSON(raw []byte) error {
 func ParsePolicy(raw []byte) (*Policy, error) {
 	var p Policy
 	if err := UnmarshalStrict(raw, &p); err != nil {
+		return nil, fmt.Errorf("policy: %w", err)
+	}
+	if err := rejectNulls(raw); err != nil {
 		return nil, fmt.Errorf("policy: %w", err)
 	}
 	if p.Policy != PolicyVersion {
@@ -171,4 +176,22 @@ func drandChain(name string) (DrandChain, error) {
 		return DrandQuicknet()
 	}
 	return DrandChain{}, fmt.Errorf("policy: unknown drand chain %q", name)
+}
+
+// rejectNulls rejects a null anywhere in a policy: every member a policy has is defined by the spec or a profile,
+// and a defined member whose value is null is an error, not an absent member (spec section 0).
+func rejectNulls(raw []byte) error {
+	d := jsontext.NewDecoder(bytes.NewReader(raw))
+	for {
+		tok, err := d.ReadToken()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if tok.Kind() == 'n' {
+			return fmt.Errorf("%s is null (leave a member out instead)", d.StackPointer())
+		}
+	}
 }

@@ -102,6 +102,7 @@ type fakeOS struct {
 	version       int64
 	patch         int64 // OS patch level, YYYYMM; 0: none
 	firmwarePatch int64 // vendor and boot patch levels, YYYYMM (stated as its 5th day); 0: the same as patch
+	bootPatch     int64 // boot patch level instead, YYYYMM; 0: the same as firmwarePatch
 	inSoftware    bool  // the OS version and patch level are in the software-enforced list
 }
 
@@ -122,8 +123,12 @@ func keyDescriptionOS(pkg string, versionCode int64, signer []byte, purposes []b
 	if firmware == 0 {
 		firmware = os.patch
 	}
+	boot := os.bootPatch
+	if boot == 0 {
+		boot = firmware
+	}
 	hw = cat(hw, cat(extra...), explicit(702, integer(0)), explicit(704, rot), osTags,
-		explicit(718, integer(firmware*100+5)), explicit(719, integer(firmware*100+5)))
+		explicit(718, integer(firmware*100+5)), explicit(719, integer(boot*100+5)))
 	return seq(integer(300), enumerated(2), integer(300), enumerated(2), octets([]byte(android.KeyChallenge)), octets(nil),
 		sw, tlv(0, 16, true, hw))
 }
@@ -526,12 +531,17 @@ func TestAndroidKeyChecks(t *testing.T) {
 		"OS version only software-enforced": {opts: withDevice(o, fakeOS{version: fakeOSVersion, patch: fakePatchMonth(0), inSoftware: true}), want: "states no OS version"},
 		"OS version only software-enforced, no minimum": {opts: withDevice(o, fakeOS{version: fakeOSVersion, patch: fakePatchMonth(0), inSoftware: true}),
 			setting: `{"minOsVersion": 0}`, want: "no OS patch level"},
-		"no OS patch level":                      {opts: withDevice(o, fakeOS{version: fakeOSVersion, firmwarePatch: fakePatchMonth(0)}), want: "no OS patch level"},
-		"no OS patch level, age not limited":     {opts: withDevice(o, fakeOS{version: fakeOSVersion, firmwarePatch: fakePatchMonth(0)}), ok: true, setting: `{"maxPatchAgeMonths": 0}`},
-		"OS patch next month":                    {opts: withOS(o, fakeOSVersion, fakePatchMonth(1)), ok: true},
-		"OS patch in 2 months":                   {opts: withOS(o, fakeOSVersion, fakePatchMonth(2)), want: "starts accepting"},
-		"OS patch in 2 months, age not limited":  {opts: withOS(o, fakeOSVersion, fakePatchMonth(2)), setting: `{"maxPatchAgeMonths": 0}`, want: "starts accepting"},
-		"firmware patch in 2 months":             {opts: withDevice(o, fakeOS{version: fakeOSVersion, patch: fakePatchMonth(0), firmwarePatch: fakePatchMonth(2)}), want: "starts accepting"},
+		"no OS patch level":                     {opts: withDevice(o, fakeOS{version: fakeOSVersion, firmwarePatch: fakePatchMonth(0)}), want: "no OS patch level"},
+		"no OS patch level, age not limited":    {opts: withDevice(o, fakeOS{version: fakeOSVersion, firmwarePatch: fakePatchMonth(0)}), ok: true, setting: `{"maxPatchAgeMonths": 0}`},
+		"OS patch next month":                   {opts: withOS(o, fakeOSVersion, fakePatchMonth(1)), ok: true},
+		"OS patch in 2 months":                  {opts: withOS(o, fakeOSVersion, fakePatchMonth(2)), want: "starts accepting"},
+		"OS patch in 2 months, age not limited": {opts: withOS(o, fakeOSVersion, fakePatchMonth(2)), setting: `{"maxPatchAgeMonths": 0}`, want: "starts accepting"},
+		"only OS patch in 2 months": {opts: withDevice(o, fakeOS{version: fakeOSVersion, patch: fakePatchMonth(2), firmwarePatch: fakePatchMonth(0)}),
+			want: "starts accepting"},
+		"only vendor patch in 2 months": {opts: withDevice(o, fakeOS{version: fakeOSVersion, patch: fakePatchMonth(0), firmwarePatch: fakePatchMonth(2),
+			bootPatch: fakePatchMonth(0)}), want: "starts accepting"},
+		"only boot patch in 2 months": {opts: withDevice(o, fakeOS{version: fakeOSVersion, patch: fakePatchMonth(0), bootPatch: fakePatchMonth(2)}),
+			want: "starts accepting"},
 		"patch 6 months old by default":          {opts: withOS(o, fakeOSVersion, fakePatchMonth(-6)), ok: true},
 		"patch 7 months old by default":          {opts: withOS(o, fakeOSVersion, fakePatchMonth(-7)), want: "stops accepting"},
 		"patch 7 months old, 12 allowed":         {opts: withOS(o, fakeOSVersion, fakePatchMonth(-7)), ok: true, setting: `{"maxPatchAgeMonths": 12}`},
@@ -590,14 +600,15 @@ func TestFuturePatchAtUpperBound(t *testing.T) {
 	v := mustVerifier(t, s.params.policy(t), s.trust)
 	b := signBundle(t, statement(derivedType, ""), k.key, k.chain)
 	thisMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-	s.tsa.stamp(t, b, thisMonth.AddDate(0, -1, 0), 0) // the first instant of last month
+	// The upper bound is the token's time plus at least a second: exactly when last month starts (accepted),
+	// and a second before (not).
+	s.tsa.stamp(t, b, thisMonth.AddDate(0, -1, 0).Add(-time.Second), 0)
 	if _, err := v.Verify(b); err != nil {
-		t.Errorf("time-stamped last month: %v", err)
+		t.Errorf("upper bound at the start of last month: %v", err)
 	}
-	// The upper bound is the token's time plus at least a second: two seconds before last month starts.
 	s.tsa.stamp(t, b, thisMonth.AddDate(0, -1, 0).Add(-2*time.Second), 0)
 	if _, err := v.Verify(b); err == nil || !strings.Contains(err.Error(), "starts accepting") {
-		t.Errorf("time-stamped two months before the patch level: %v", err)
+		t.Errorf("upper bound a second before last month: %v", err)
 	}
 }
 
@@ -613,10 +624,16 @@ func TestPatchAgeAtUpperBound(t *testing.T) {
 	s.trust.Roots = append(s.trust.Roots, k.root)
 	v := mustVerifier(t, s.params.policy(t), s.trust)
 	b := signBundle(t, statement(derivedType, ""), k.key, k.chain)
-	lastMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).Add(-time.Hour)
-	s.tsa.stamp(t, b, lastMonth, 0)
+	// The upper bound is the token's time plus at least a second: a second before this month starts (accepted),
+	// and exactly when it starts (not).
+	thisMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	s.tsa.stamp(t, b, thisMonth.Add(-2*time.Second), 0)
 	if _, err := v.Verify(b); err != nil {
-		t.Errorf("time-stamped while the patch level was recent enough: %v", err)
+		t.Errorf("upper bound a second before this month: %v", err)
+	}
+	s.tsa.stamp(t, b, thisMonth.Add(-time.Second), 0)
+	if _, err := v.Verify(b); err == nil || !strings.Contains(err.Error(), "stops accepting") {
+		t.Errorf("upper bound at the start of this month: %v", err)
 	}
 	s.tsa.stamp(t, b, now.Truncate(time.Second), 0)
 	if _, err := v.Verify(b); err == nil || !strings.Contains(err.Error(), "stops accepting") {
