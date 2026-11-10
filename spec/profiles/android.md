@@ -133,8 +133,8 @@ The version is the one that created the key, so `versionCodes` keeps other versi
 version signed with these certificates makes its own key (section Key), which a verifier can't check;
 `maxKeyAgeHours` limits how long an older key stays usable.
 
-At most one entry of a predicate type may match an app: two entries with the same `package` and a
-signing-certificate digest in common are a policy error, whatever their versions (one entry can list them all).
+Two entries of a predicate type with the same `package` and a signing-certificate digest in common are a policy
+error, whatever their versions (one entry can list them all), so an app matches at most one entry.
 
 An entry with `versionCodes` MAY end the acceptance of some of them, to retire a version on a date known in advance:
 
@@ -147,8 +147,9 @@ An entry with `versionCodes` MAY end the acceptance of some of them, to retire a
 bound (core spec section 4) is before that time. Nobody can get a time-stamp in the past, so an old app can't make
 such a statement after its end time, while the statements it made before stay accepted. `versionEndTimes` MUST NOT
 be empty, and each of its entries MUST have both members; each `versionCode` in it MUST be in `versionCodes` and
-appear once, and each `endTime` MUST be from 1 to 2⁵³ − 1. Anything else is a policy error. To stop accepting a
-version's statements made at any time, leave it out of `versionCodes`.
+appear once, and each `endTime` MUST be from 1 to 253402300799 (9999-12-31T23:59:59Z, the latest time RFC 3339 can
+write). Anything else is a policy error. To stop accepting a version's statements made at any time, leave it out of
+`versionCodes`.
 
 Settings go under `profiles.android` of each predicate type (core spec section 5):
 

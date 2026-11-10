@@ -162,8 +162,6 @@ func TestSettingsRanges(t *testing.T) {
 	}
 }
 
-// Two entries for the same package with a signing certificate in common are a policy error, whatever their
-// versions; entries that differ in package or certificates aren't.
 func TestOverlappingSignersAreErrors(t *testing.T) {
 	const c1, c2 = "d66a722561948c23fca5f90a758008dc4b2a11100db466e75e58d4f3ee4ffb99",
 		"0000000000000000000000000000000000000000000000000000000000000001"
@@ -172,8 +170,8 @@ func TestOverlappingSignersAreErrors(t *testing.T) {
 	}
 	p := New(&Trust{BootKeyLists: map[string]*BootKeyList{"grapheneos": {}}})
 	for name, c := range map[string]struct {
-		a, b  []byte
-		error bool
+		a, b    []byte
+		wantErr bool
 	}{
 		"same, any version":       {entry("x", `["`+c1+`"]`, ""), entry("x", `["`+c1+`"]`, ""), true},
 		"any version and some":    {entry("x", `["`+c1+`"]`, ""), entry("x", `["`+c1+`"]`, `, "versionCodes": [15]`), true},
@@ -183,25 +181,25 @@ func TestOverlappingSignersAreErrors(t *testing.T) {
 		"other certificates":      {entry("x", `["`+c1+`"]`, `, "versionCodes": [15]`), entry("x", `["`+c2+`"]`, `, "versionCodes": [15]`), false},
 	} {
 		_, err := p.CheckPolicy([]jsontext.Value{c.a, c.b}, nil)
-		if (err != nil) != c.error {
-			t.Errorf("%s: got %v, want an error: %v", name, err, c.error)
+		if (err != nil) != c.wantErr {
+			t.Errorf("%s: error %v, want an error %v", name, err, c.wantErr)
 		}
 	}
 }
 
-// Each mistake in versionEndTimes gets an error that names it.
 func TestVersionEndTimeErrors(t *testing.T) {
 	const entry = `{"profile": "android", "package": "x", "signingCertificates": ["` +
 		"d66a722561948c23fca5f90a758008dc4b2a11100db466e75e58d4f3ee4ffb99" + `"], "versionCodes": [0, 1], "versionEndTimes": %s}`
 	for ends, want := range map[string]string{
-		`[]`:                                 "versionEndTimes is empty",
-		`[{"endTime": 1}]`:                   "needs a versionCode and an endTime",
-		`[{"versionCode": 1}]`:               "needs a versionCode and an endTime",
-		`[{"versionCode": 2, "endTime": 1}]`: "versionCode 2, which isn't in versionCodes",
+		`[]`:                                    "versionEndTimes is empty",
+		`[{"endTime": 1}]`:                      "needs a versionCode and an endTime",
+		`[{"versionCode": 1}]`:                  "needs a versionCode and an endTime",
+		`[{"versionCode": 1, "endTime": null}]`: "needs a versionCode and an endTime",
+		`[{"versionCode": 2, "endTime": 1}]`:    "versionCode 2, which isn't in versionCodes",
 		`[{"versionCode": 1, "endTime": 1}, {"versionCode": 1, "endTime": 2}]`: "versionCode 1 twice",
-		`[{"versionCode": 1, "endTime": 0}]`:                                   "endTime 0 of versionCode 1 isn't from 1 to 2^53 - 1",
-		`[{"versionCode": 1, "endTime": 9007199254740992}]`:                    "endTime 9007199254740992 of versionCode 1 isn't from 1",
-		`[{"versionCode": 0, "endTime": 9007199254740991}]`:                    "",
+		`[{"versionCode": 1, "endTime": 0}]`:                                   "endTime 0 of versionCode 1 isn't from 1 to 253402300799",
+		`[{"versionCode": 1, "endTime": 253402300800}]`:                        "endTime 253402300800 of versionCode 1 isn't from 1",
+		`[{"versionCode": 0, "endTime": 253402300799}]`:                        "",
 		`[{"versionCode": 0, "endTime": 1}, {"versionCode": 1, "endTime": 1}]`: "",
 	} {
 		_, err := parseSigner([]byte(fmt.Sprintf(entry, ends)))

@@ -141,20 +141,8 @@ func verifyCapture(v *verifier.Verifier, raw []byte) (*verifier.Result, error) {
 	return r, httpresponse.CheckResponse(r.Statement, p, resp)
 }
 
-func TestVersionEndingAfterTheTimeStampIsAccepted(t *testing.T) {
-	p := defaultParams()
-	p.versionEndTimes = `[{"versionCode": 1, "endTime": 1798761600}]` // 2027-01-01, after the capture
-	r, err := verifyCapture(mustVerifier(t, p.policy(t), testTrust(t)), readCapture(t, "example.http"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := time.Unix(1798761600, 0).UTC(); !r.Key.AcceptedUntil.Equal(want) {
-		t.Errorf("accepted until %v, want the version's end time %v", r.Key.AcceptedUntil, want)
-	}
-}
-
-// A version's end time applies to statements whose upper bound is at or after it, to the second, and a rejected
-// result shows the key, whose description gives the end time.
+// A version's end time rejects statements whose upper bound is at or after it, and the key's description, also in
+// a rejected result, gives it.
 func TestVersionEndTimeBoundary(t *testing.T) {
 	_, b, err := verifier.ParseHTTPResponse(readCapture(t, "example.http"))
 	if err != nil {
@@ -164,10 +152,7 @@ func TestVersionEndTimeBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(r.Key.Description[1], ", OS patch level accepted until ") {
-		t.Errorf("the description doesn't say until when the patch level is accepted: %q", r.Key.Description[1])
-	}
-	upper := r.NotAfter.Unix() // the end time at or before the upper bound
+	upper := r.NotAfter.Unix()
 	for end, accepted := range map[int64]bool{upper: false, upper + 1: true} {
 		p := defaultParams()
 		p.versionEndTimes = fmt.Sprintf(`[{"versionCode": 1, "endTime": %d}]`, end)
@@ -176,13 +161,25 @@ func TestVersionEndTimeBoundary(t *testing.T) {
 			t.Errorf("end time %d, upper bound %v: accepted %v, want %v (%v)", end, r.NotAfter, err == nil, accepted, err)
 			continue
 		}
-		until := time.Unix(end, 0).UTC().Format("2006-01-02 15:04:05 MST")
-		if err != nil && !strings.Contains(err.Error(), "not before "+time.Unix(end, 0).UTC().String()) {
+		endTime := time.Unix(end, 0).UTC()
+		if err != nil && !strings.Contains(err.Error(), "not before "+endTime.String()) {
 			t.Errorf("end time %d: the error doesn't name it: %v", end, err)
 		}
+		if err == nil && !r.Key.AcceptedUntil.Equal(endTime) {
+			t.Errorf("end time %d: accepted until %v", end, r.Key.AcceptedUntil)
+		}
+		until := endTime.Format("2006-01-02 15:04:05 MST")
 		if r.Key == nil || !strings.Contains(r.Key.Description[0], ", accepted until "+until) {
 			t.Errorf("end time %d: the result's key doesn't give it: %+v", end, r.Key)
 		}
+	}
+}
+
+func TestPolicyChangedAfterNewHasNoEffect(t *testing.T) {
+	v := mustVerifier(t, defaultParams().policy(t), testTrust(t))
+	v.Policy.PredicateTypes = nil
+	if _, err := verifyCapture(v, readCapture(t, "example.http")); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -208,6 +205,9 @@ func TestCapturesVerify(t *testing.T) {
 		}
 		if app.Package != capturePackage || app.VersionCode != 1 {
 			t.Errorf("%s: app %+v", name, app)
+		}
+		if !strings.Contains(r.Key.Description[1], ", OS patch level accepted until ") {
+			t.Errorf("%s: the description doesn't say until when the patch level is accepted: %q", name, r.Key.Description[1])
 		}
 		_, b, _ := verifier.ParseHTTPResponse(readCapture(t, name))
 		sizes[b.VerificationMaterial.Timestamp.Tree.Size] = true
@@ -301,9 +301,6 @@ func TestCaptureTampering(t *testing.T) {
 		"statement from other capture": {raw: replace(example, header(example, "Attested-Statement"), header(redirect, "Attested-Statement"))},
 		"signer not trusted":           {raw: example, params: params(func(p *policyParams) { p.signingCertificate = strings.Repeat("ab", 32) })},
 		"version not accepted":         {raw: example, params: params(func(p *policyParams) { p.versionCodes = "[17]" })},
-		"version ended before stamped": {raw: example, params: params(func(p *policyParams) {
-			p.versionEndTimes = `[{"versionCode": 1, "endTime": 1767225600}]` // 2026-01-01, before the capture
-		})},
 		"predicate type not in policy": {raw: example, params: params(func(p *policyParams) {
 			p.noCaptureType = true
 			p.extraTypes = `"urn:x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"]}]}`
@@ -498,14 +495,7 @@ func TestPolicyMistakesAreErrors(t *testing.T) {
 		"zero list age":            head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": {"maxListAgeHours": 0}}}}}`,
 		"no OS accepted":           head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": {"os": {"stock": false, "bootKeyLists": []}}}}}}`,
 		"end of unlisted version":  head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 2, "endTime": 1}]}]}}}`,
-		"version ended twice":      head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 1, "endTime": 1}, {"versionCode": 1, "endTime": 2}]}]}}}`,
-		"zero end time":            head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 1, "endTime": 0}]}]}}}`,
 		"overlapping entries":      head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `, {"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 1, "endTime": 1}]}]}}}`,
-		"no end times":             head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": []}]}}}`,
-		"end time without version": head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [0, 1], "versionEndTimes": [{"endTime": 1}]}]}}}`,
-		"version without end time": head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 1}]}]}}}`,
-		"null end time":            head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 1, "endTime": null}]}]}}}`,
-		"end time too large":       head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 1, "endTime": 9007199254740992}]}]}}}`,
 	} {
 		p, err := verifier.ParsePolicy([]byte(raw))
 		if err == nil {

@@ -37,11 +37,14 @@ type Signer struct {
 	VersionEndTimes     []VersionEndTime `json:"versionEndTimes,omitzero"`
 }
 
-// VersionEndTime is when the policy stops accepting statements of one listed version. Both members are required.
+// VersionEndTime is when the policy stops accepting statements of one listed version.
 type VersionEndTime struct {
 	VersionCode *int64 `json:"versionCode"`
 	EndTime     *int64 `json:"endTime"` // Unix seconds
 }
+
+// maxEndTime is 9999-12-31 23:59:59 UTC, the last time RFC 3339 (as results give times) can write.
+const maxEndTime = 253402300799
 
 // Settings are the policy's "android" profile settings.
 type Settings struct {
@@ -190,8 +193,8 @@ func parseSigner(raw jsontext.Value) (*Signer, error) {
 			return nil, fmt.Errorf("android signer: versionEndTimes names versionCode %d, which isn't in versionCodes", v)
 		case slices.ContainsFunc(s.VersionEndTimes[:i], func(f VersionEndTime) bool { return *f.VersionCode == v }):
 			return nil, fmt.Errorf("android signer: versionEndTimes names versionCode %d twice", v)
-		case end < 1 || end > verifier.MaxJSONInteger:
-			return nil, fmt.Errorf("android signer: the endTime %d of versionCode %d isn't from 1 to 2^53 - 1", end, v)
+		case end < 1 || end > maxEndTime:
+			return nil, fmt.Errorf("android signer: the endTime %d of versionCode %d isn't from 1 to %d (the end of 9999)", end, v, int64(maxEndTime))
 		}
 	}
 	for i, c := range s.SigningCertificates {
@@ -204,36 +207,34 @@ func parseSigner(raw jsontext.Value) (*Signer, error) {
 	return &s, nil
 }
 
-// policy is the profile's parsed part of a predicate type's policy.
 type policy struct {
 	signers  []*Signer
 	settings *Settings
 }
 
 func (p *Profile) CheckPolicy(trusted []jsontext.Value, settings jsontext.Value) (verifier.ProfilePolicy, error) {
-	pol := &policy{}
+	var signers []*Signer
 	for _, raw := range trusted {
-		s, err := parseSigner(raw)
+		signer, err := parseSigner(raw)
 		if err != nil {
 			return nil, err
 		}
-		for _, earlier := range pol.signers {
-			if err := overlap(earlier, s); err != nil {
+		for _, earlier := range signers {
+			if err := overlap(earlier, signer); err != nil {
 				return nil, err
 			}
 		}
-		pol.signers = append(pol.signers, s)
+		signers = append(signers, signer)
 	}
-	s, err := p.settings(settings)
+	set, err := p.settings(settings)
 	if err != nil {
 		return nil, err
 	}
-	pol.settings = s
-	return pol, nil
+	return &policy{signers: signers, settings: set}, nil
 }
 
-// overlap is an error if a and b are for the same package and have a signing certificate in common. An app then
-// matches at most one entry, which alone says which of its versions are accepted, and until when.
+// overlap is an error if a and b are for the same package and have a signing certificate in common, so that an
+// app matches at most one entry.
 func overlap(a, b *Signer) error {
 	if a.Package != b.Package {
 		return nil
@@ -281,7 +282,7 @@ func (p *Profile) VerifyKey(raw jsontext.Value, parsed verifier.ProfilePolicy, n
 	if !ok {
 		return nil, fmt.Errorf("android: the policy is a %T, not one CheckPolicy returned", parsed)
 	}
-	s := pol.settings
+	set := pol.settings
 	chain, err := parseEvidence(raw)
 	if err != nil {
 		return nil, err
@@ -290,9 +291,9 @@ func (p *Profile) VerifyKey(raw jsontext.Value, parsed verifier.ProfilePolicy, n
 	if err != nil {
 		return nil, err
 	}
-	maxAge := time.Duration(*s.MaxListAgeHours) * time.Hour
+	maxAge := time.Duration(*set.MaxListAgeHours) * time.Hour
 	if t := p.trust.RevocationProduced; t.IsZero() || now.Sub(t) > maxAge {
-		return nil, fmt.Errorf("the revocation list is older than %d hours: fetch it again", *s.MaxListAgeHours)
+		return nil, fmt.Errorf("the revocation list is older than %d hours: fetch it again", *set.MaxListAgeHours)
 	}
 	all := append(slices.Clone(ci.certs), ci.root)
 	for _, c := range all[1:] { // the leaf is the app's key, issued by the device: Google revokes attestation keys
@@ -311,7 +312,7 @@ func (p *Profile) VerifyKey(raw jsontext.Value, parsed verifier.ProfilePolicy, n
 	if err := checkKey(kd); err != nil {
 		return nil, err
 	}
-	dev, err := p.checkDevice(kd, ci, s, now)
+	dev, err := p.checkDevice(kd, ci, set, now)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +321,7 @@ func (p *Profile) VerifyKey(raw jsontext.Value, parsed verifier.ProfilePolicy, n
 		return nil, err
 	}
 	key := &verifier.Key{PublicKey: pub, Signer: app, Device: dev, ValidFrom: all[0].NotBefore, ValidUntil: all[0].NotAfter,
-		Created: dev.KeyCreated, MaxAge: time.Duration(s.MaxKeyAgeHours) * time.Hour}
+		Created: dev.KeyCreated, MaxAge: time.Duration(set.MaxKeyAgeHours) * time.Hour}
 	// No patch level may be more than maxPatchLead months after the upper bound's month (checkDevice has checked
 	// the levels present are well-formed).
 	for _, level := range []int64{dev.OSPatchLevel, dev.VendorPatchLevel, dev.BootPatchLevel} {
@@ -328,10 +329,10 @@ func (p *Profile) VerifyKey(raw jsontext.Value, parsed verifier.ProfilePolicy, n
 			key.AcceptedFrom = from
 		}
 	}
-	// The description says when each limit ends, so a reader can tell which one AcceptedUntil (the earliest) is.
+	// The description gives each limit's end, so a reader can tell which one AcceptedUntil is.
 	appLine := fmt.Sprintf("app %s, versionCode %d", app.Package, app.VersionCode)
 	patchLine := fmt.Sprintf("patches: OS %d, vendor %d, boot %d", dev.OSPatchLevel, dev.VendorPatchLevel, dev.BootPatchLevel)
-	if n := *s.MaxPatchAgeMonths; n > 0 {
+	if n := *set.MaxPatchAgeMonths; n > 0 {
 		// Accepted while the upper bound's month is at most n months after the patch level's (checkDevice has
 		// checked it is present and well-formed).
 		key.AcceptedUntil = monthStart(patchMonth(dev.OSPatchLevel), int(n)+1)
@@ -363,7 +364,6 @@ func (p *Profile) VerifyKey(raw jsontext.Value, parsed verifier.ProfilePolicy, n
 	return key, nil
 }
 
-// formatTime shows a time in the description, in UTC.
 func formatTime(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05 MST") }
 
 // checkKey checks the key's own properties: made for this format, in the hardware, for signing only.
@@ -492,8 +492,7 @@ func (p *Profile) checkDevice(kd *KeyDescription, ci *chainInfo, s *Settings, no
 	return d, nil
 }
 
-// checkApp reads the app from the attestation, and returns it with the entry of trusted that accepts it (there is at
-// most one: CheckPolicy rejects entries that overlap).
+// checkApp returns the attested app and the one entry of trusted that accepts it (CheckPolicy rejects overlaps).
 func checkApp(kd *KeyDescription, trusted []*Signer) (*App, *Signer, error) {
 	id := kd.Software.ApplicationID
 	if id == nil || len(id.Packages) != 1 || len(id.SignatureDigests) == 0 {
