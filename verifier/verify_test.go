@@ -467,6 +467,7 @@ func TestPolicyMistakesAreErrors(t *testing.T) {
 		"end of unlisted version":  head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 2, "endTime": 1}]}]}}}`,
 		"version ended twice":      head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 1, "endTime": 1}, {"versionCode": 1, "endTime": 2}]}]}}}`,
 		"zero end time":            head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 1, "endTime": 0}]}]}}}`,
+		"overlapping entries":      head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `, {"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 1, "endTime": 1}]}]}}}`,
 	} {
 		p, err := verifier.ParsePolicy([]byte(raw))
 		if err == nil {

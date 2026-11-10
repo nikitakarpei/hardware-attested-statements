@@ -8,6 +8,9 @@ Each release has a section `## <version> (<date>)`, used as its release notes. V
 - Android profile: a `trustedSigners` entry can end the acceptance of some of its `versionCodes` with
   `versionEndTimes`, to retire a version on a date known in advance: a statement of that version is accepted only if
   its upper time bound is before the end time.
+- Android profile: two `trustedSigners` entries of a predicate type with the same package and a signing
+  certificate in common are a policy error, whatever their versions. Before, the first in the policy that accepted
+  an app applied, so a version's end time could be ignored depending on the order of the entries.
 - Verifier library (breaking): `Profile.CheckPolicy` returns the profile's parsed part of the policy
   (`ProfilePolicy`), which the verifier keeps and passes to `Profile.VerifyKey` in place of the raw `trustedSigners`
   entries and settings. Profiles parse their policy once, when the verifier is made, not for every key.

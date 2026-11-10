@@ -209,6 +209,11 @@ func (p *Profile) CheckPolicy(trusted []jsontext.Value, settings jsontext.Value)
 		if err != nil {
 			return nil, err
 		}
+		for _, earlier := range pol.signers {
+			if err := overlap(earlier, s); err != nil {
+				return nil, err
+			}
+		}
 		pol.signers = append(pol.signers, s)
 	}
 	s, err := p.settings(settings)
@@ -217,6 +222,21 @@ func (p *Profile) CheckPolicy(trusted []jsontext.Value, settings jsontext.Value)
 	}
 	pol.settings = s
 	return pol, nil
+}
+
+// overlap is an error if a and b are for the same package and have a signing certificate in common. An app then
+// matches at most one entry, which alone says which of its versions are accepted, and until when.
+func overlap(a, b *Signer) error {
+	if a.Package != b.Package {
+		return nil
+	}
+	for _, c := range a.SigningCertificates {
+		if slices.Contains(b.SigningCertificates, c) {
+			return fmt.Errorf("android signer: two entries are for %s signed with %s; list all its versions in one",
+				a.Package, c)
+		}
+	}
+	return nil
 }
 
 func parseEvidence(raw jsontext.Value) ([]*x509.Certificate, error) {
@@ -456,6 +476,8 @@ func (p *Profile) checkDevice(kd *KeyDescription, ci *chainInfo, s *Settings, no
 	return d, nil
 }
 
+// checkApp reads the app from the attestation, and returns it with the entry of trusted that accepts it (there is at
+// most one: CheckPolicy rejects entries that overlap).
 func checkApp(kd *KeyDescription, trusted []*Signer) (*App, *Signer, error) {
 	id := kd.Software.ApplicationID
 	if id == nil || len(id.Packages) != 1 || len(id.SignatureDigests) == 0 {

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json/jsontext"
+	"fmt"
 	"math/big"
 	"net/http"
 	"os"
@@ -156,6 +158,33 @@ func TestSettingsRanges(t *testing.T) {
 	} {
 		if _, err := p.CheckPolicy(nil, []byte(raw)); (err == nil) != ok {
 			t.Errorf("%s: ok %v, err %v", raw, ok, err)
+		}
+	}
+}
+
+// Two entries for the same package with a signing certificate in common are a policy error, whatever their
+// versions; entries that differ in package or certificates aren't.
+func TestOverlappingSignersAreErrors(t *testing.T) {
+	const c1, c2 = "d66a722561948c23fca5f90a758008dc4b2a11100db466e75e58d4f3ee4ffb99",
+		"0000000000000000000000000000000000000000000000000000000000000001"
+	entry := func(pkg string, certs, versions string) []byte {
+		return fmt.Appendf(nil, `{"profile": "android", "package": %q, "signingCertificates": %s%s}`, pkg, certs, versions)
+	}
+	p := New(&Trust{BootKeyLists: map[string]*BootKeyList{"grapheneos": {}}})
+	for name, c := range map[string]struct {
+		a, b  []byte
+		error bool
+	}{
+		"same, any version":       {entry("x", `["`+c1+`"]`, ""), entry("x", `["`+c1+`"]`, ""), true},
+		"any version and some":    {entry("x", `["`+c1+`"]`, ""), entry("x", `["`+c1+`"]`, `, "versionCodes": [15]`), true},
+		"other versions":          {entry("x", `["`+c1+`"]`, `, "versionCodes": [15]`), entry("x", `["`+c1+`"]`, `, "versionCodes": [16]`), true},
+		"a certificate in common": {entry("x", `["`+c1+`", "`+c2+`"]`, ""), entry("x", `["`+c2+`"]`, ""), true},
+		"other package":           {entry("x", `["`+c1+`"]`, ""), entry("y", `["`+c1+`"]`, ""), false},
+		"other certificates":      {entry("x", `["`+c1+`"]`, `, "versionCodes": [15]`), entry("x", `["`+c2+`"]`, `, "versionCodes": [15]`), false},
+	} {
+		_, err := p.CheckPolicy([]jsontext.Value{c.a, c.b}, nil)
+		if (err != nil) != c.error {
+			t.Errorf("%s: got %v, want an error: %v", name, err, c.error)
 		}
 	}
 }

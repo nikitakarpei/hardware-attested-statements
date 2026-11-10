@@ -133,6 +133,9 @@ The version is the one that created the key, so `versionCodes` keeps other versi
 version signed with these certificates makes its own key (section Key), which a verifier can't check;
 `maxKeyAgeHours` limits how long an older key stays usable.
 
+At most one entry of a predicate type may match an app: two entries with the same `package` and a
+signing-certificate digest in common are a policy error, whatever their versions (one entry can list them all).
+
 An entry with `versionCodes` MAY end the acceptance of some of them, to retire a version on a date known in advance:
 
 ```json
