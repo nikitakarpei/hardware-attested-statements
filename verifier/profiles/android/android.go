@@ -328,14 +328,20 @@ func (p *Profile) VerifyKey(raw jsontext.Value, parsed verifier.ProfilePolicy, n
 			key.AcceptedFrom = from
 		}
 	}
+	// The description says when each limit ends, so a reader can tell which one AcceptedUntil (the earliest) is.
+	appLine := fmt.Sprintf("app %s, versionCode %d", app.Package, app.VersionCode)
+	patchLine := fmt.Sprintf("patches: OS %d, vendor %d, boot %d", dev.OSPatchLevel, dev.VendorPatchLevel, dev.BootPatchLevel)
 	if n := *s.MaxPatchAgeMonths; n > 0 {
 		// Accepted while the upper bound's month is at most n months after the patch level's (checkDevice has
 		// checked it is present and well-formed).
 		key.AcceptedUntil = monthStart(patchMonth(dev.OSPatchLevel), int(n)+1)
+		patchLine += ", OS patch level accepted until " + formatTime(key.AcceptedUntil)
 	}
-	if endTime := signer.endTimeOf(app.VersionCode); !endTime.IsZero() &&
-		(key.AcceptedUntil.IsZero() || endTime.Before(key.AcceptedUntil)) {
-		key.AcceptedUntil = endTime
+	if endTime := signer.endTimeOf(app.VersionCode); !endTime.IsZero() {
+		appLine += ", accepted until " + formatTime(endTime)
+		if key.AcceptedUntil.IsZero() || endTime.Before(key.AcceptedUntil) {
+			key.AcceptedUntil = endTime
+		}
 	}
 	for _, c := range all {
 		if c.NotBefore.After(key.ValidFrom) {
@@ -347,16 +353,18 @@ func (p *Profile) VerifyKey(raw jsontext.Value, parsed verifier.ProfilePolicy, n
 	}
 	created := "unknown"
 	if dev.KeyCreated != nil {
-		created = dev.KeyCreated.UTC().Format("2006-01-02 15:04:05 MST")
+		created = formatTime(*dev.KeyCreated)
 	}
 	key.Description = []string{
-		fmt.Sprintf("app %s, versionCode %d (signing certificate %s)", app.Package, app.VersionCode, strings.Join(app.SigningCertificates, ", ")),
-		fmt.Sprintf("key in %s (%s attestation), created %s; bootloader locked; %s OS (%s), Android %s; patches: OS %d, vendor %d, boot %d",
-			dev.KeyStorage, dev.Provisioning, created, dev.OS, dev.BootState, osVersionString(dev.OSVersion), dev.OSPatchLevel,
-			dev.VendorPatchLevel, dev.BootPatchLevel),
+		fmt.Sprintf("%s (signing certificate %s)", appLine, strings.Join(app.SigningCertificates, ", ")),
+		fmt.Sprintf("key in %s (%s attestation), created %s; bootloader locked; %s OS (%s), Android %s; %s",
+			dev.KeyStorage, dev.Provisioning, created, dev.OS, dev.BootState, osVersionString(dev.OSVersion), patchLine),
 	}
 	return key, nil
 }
+
+// formatTime shows a time in the description, in UTC.
+func formatTime(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05 MST") }
 
 // checkKey checks the key's own properties: made for this format, in the hardware, for signing only.
 func checkKey(kd *KeyDescription) error {

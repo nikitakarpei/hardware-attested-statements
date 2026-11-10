@@ -153,6 +153,39 @@ func TestVersionEndingAfterTheTimeStampIsAccepted(t *testing.T) {
 	}
 }
 
+// A version's end time applies to statements whose upper bound is at or after it, to the second, and a rejected
+// result shows the key, whose description gives the end time.
+func TestVersionEndTimeBoundary(t *testing.T) {
+	_, b, err := verifier.ParseHTTPResponse(readCapture(t, "example.http"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := mustVerifier(t, defaultParams().policy(t), testTrust(t)).Verify(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(r.Key.Description[1], ", OS patch level accepted until ") {
+		t.Errorf("the description doesn't say until when the patch level is accepted: %q", r.Key.Description[1])
+	}
+	upper := r.NotAfter.Unix() // the end time at or before the upper bound
+	for end, accepted := range map[int64]bool{upper: false, upper + 1: true} {
+		p := defaultParams()
+		p.versionEndTimes = fmt.Sprintf(`[{"versionCode": 1, "endTime": %d}]`, end)
+		r, err := mustVerifier(t, p.policy(t), testTrust(t)).Verify(b)
+		if (err == nil) != accepted {
+			t.Errorf("end time %d, upper bound %v: accepted %v, want %v (%v)", end, r.NotAfter, err == nil, accepted, err)
+			continue
+		}
+		until := time.Unix(end, 0).UTC().Format("2006-01-02 15:04:05 MST")
+		if err != nil && !strings.Contains(err.Error(), "not before "+time.Unix(end, 0).UTC().String()) {
+			t.Errorf("end time %d: the error doesn't name it: %v", end, err)
+		}
+		if r.Key == nil || !strings.Contains(r.Key.Description[0], ", accepted until "+until) {
+			t.Errorf("end time %d: the result's key doesn't give it: %+v", end, r.Key)
+		}
+	}
+}
+
 func TestCapturesVerify(t *testing.T) {
 	v := mustVerifier(t, defaultParams().policy(t), testTrust(t))
 	names := []string{"example.http", "redirect.http"}

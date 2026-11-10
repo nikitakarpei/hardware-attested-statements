@@ -108,7 +108,7 @@ type Result struct {
 	SignedStatementID string     `json:"signedStatementId"` // hex
 	Statement         *Statement `json:"statement"`
 	Profile           string     `json:"profile"`
-	Key               *Key       `json:"key,omitzero"`
+	Key               *Key       `json:"key,omitzero"` // also when the policy's limits on the key failed
 	// Timestamp is the earliest of the statement's own accepted time-stamps, if any, and TSA its authority.
 	Timestamp *time.Time `json:"timestamp,omitzero"`
 	TSA       string     `json:"tsa,omitzero"`
@@ -510,6 +510,7 @@ func (v *Verifier) policy(n *Result, now time.Time) error {
 			return err
 		}
 		if err := checkKeyAt(key, upper, !n.NotAfter.IsZero()); err != nil {
+			n.Key = key // the result shows the key that failed, whose description says when its limits end
 			return err
 		}
 		if n.Key == nil {
