@@ -30,13 +30,11 @@ type Evidence struct {
 
 // Signer is a policy entry: an app, by package and signing certificates, optionally only some versions.
 type Signer struct {
-	Profile             string   `json:"profile"`
-	Package             string   `json:"package"`
-	SigningCertificates []string `json:"signingCertificates"`
-	VersionCodes        []int64  `json:"versionCodes,omitzero"`
-	// VersionEndTimes ends the acceptance of some listed versions: statements whose upper bound is at or after
-	// EndTime (Unix seconds) are rejected.
-	VersionEndTimes []VersionEndTime `json:"versionEndTimes,omitzero"`
+	Profile             string           `json:"profile"`
+	Package             string           `json:"package"`
+	SigningCertificates []string         `json:"signingCertificates"`
+	VersionCodes        []int64          `json:"versionCodes,omitzero"`
+	VersionEndTimes     []VersionEndTime `json:"versionEndTimes,omitzero"`
 }
 
 // VersionEndTime is when the policy stops accepting statements of one listed version.
@@ -179,14 +177,14 @@ func parseSigner(raw jsontext.Value) (*Signer, error) {
 	if s.VersionCodes != nil && len(s.VersionCodes) == 0 {
 		return nil, errors.New("android signer: versionCodes is empty (leave it out to accept any version)")
 	}
-	ended := map[int64]bool{}
+	versionsWithEndTime := map[int64]bool{}
 	for _, e := range s.VersionEndTimes {
-		if !slices.Contains(s.VersionCodes, e.VersionCode) || ended[e.VersionCode] || e.EndTime < 1 ||
+		if !slices.Contains(s.VersionCodes, e.VersionCode) || versionsWithEndTime[e.VersionCode] || e.EndTime < 1 ||
 			e.EndTime > verifier.MaxJSONInteger {
 			return nil, fmt.Errorf("android signer: versionEndTimes entry for %d must name a listed versionCode once, "+
 				"with an endTime of at least 1", e.VersionCode)
 		}
-		ended[e.VersionCode] = true
+		versionsWithEndTime[e.VersionCode] = true
 	}
 	for i, c := range s.SigningCertificates {
 		c = strings.ToLower(strings.ReplaceAll(c, ":", ""))
@@ -275,7 +273,7 @@ func (p *Profile) VerifyKey(raw jsontext.Value, trusted []jsontext.Value, settin
 	if err != nil {
 		return nil, err
 	}
-	app, endTime, err := checkApp(kd, trusted)
+	app, signer, err := checkApp(kd, trusted)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +291,8 @@ func (p *Profile) VerifyKey(raw jsontext.Value, trusted []jsontext.Value, settin
 		// checked it is present and well-formed).
 		key.AcceptedUntil = monthStart(patchMonth(dev.OSPatchLevel), int(n)+1)
 	}
-	if !endTime.IsZero() && (key.AcceptedUntil.IsZero() || endTime.Before(key.AcceptedUntil)) {
+	if endTime := signer.endTimeOf(app.VersionCode); !endTime.IsZero() &&
+		(key.AcceptedUntil.IsZero() || endTime.Before(key.AcceptedUntil)) {
 		key.AcceptedUntil = endTime
 	}
 	for _, c := range all {
@@ -443,12 +442,10 @@ func (p *Profile) checkDevice(kd *KeyDescription, ci *chainInfo, s *Settings, no
 	return d, nil
 }
 
-// checkApp returns the app the attestation names, if an entry of trusted accepts it, and when that entry stops
-// accepting its version (zero: never).
-func checkApp(kd *KeyDescription, trusted []jsontext.Value) (*App, time.Time, error) {
+func checkApp(kd *KeyDescription, trusted []jsontext.Value) (*App, *Signer, error) {
 	id := kd.Software.ApplicationID
 	if id == nil || len(id.Packages) != 1 || len(id.SignatureDigests) == 0 {
-		return nil, time.Time{}, errors.New("the attestation doesn't name exactly one app and its signing certificates")
+		return nil, nil, errors.New("the attestation doesn't name exactly one app and its signing certificates")
 	}
 	pkg := id.Packages[0]
 	app := &App{Package: pkg.Name, VersionCode: pkg.VersionCode}
@@ -459,7 +456,7 @@ func checkApp(kd *KeyDescription, trusted []jsontext.Value) (*App, time.Time, er
 	for _, raw := range trusted {
 		s, err := parseSigner(raw)
 		if err != nil {
-			return nil, time.Time{}, err
+			return nil, nil, err
 		}
 		if s.Package != pkg.Name {
 			continue
@@ -474,14 +471,14 @@ func checkApp(kd *KeyDescription, trusted []jsontext.Value) (*App, time.Time, er
 		case len(s.VersionCodes) > 0 && !slices.Contains(s.VersionCodes, pkg.VersionCode):
 			reason = fmt.Errorf("%s versionCode %d is not one the policy accepts", pkg.Name, pkg.VersionCode)
 		default:
-			return app, endTimeOf(s, pkg.VersionCode), nil
+			return app, s, nil
 		}
 	}
-	return nil, time.Time{}, reason
+	return nil, nil, reason
 }
 
 // endTimeOf is when s stops accepting versionCode (zero: never).
-func endTimeOf(s *Signer, versionCode int64) time.Time {
+func (s *Signer) endTimeOf(versionCode int64) time.Time {
 	for _, e := range s.VersionEndTimes {
 		if e.VersionCode == versionCode {
 			return time.Unix(e.EndTime, 0).UTC()

@@ -133,8 +133,7 @@ The version is the one that created the key, so `versionCodes` keeps other versi
 version signed with these certificates makes its own key (section Key), which a verifier can't check;
 `maxKeyAgeHours` limits how long an older key stays usable.
 
-An entry with `versionCodes` MAY end the acceptance of some of them, to retire a version on a date known in
-advance:
+An entry with `versionCodes` MAY end the acceptance of some of them, to retire a version on a date known in advance:
 
 ```json
 { "profile": "android", "package": "org.example.app", "signingCertificates": ["<SHA-256>"], "versionCodes": [15, 16],
