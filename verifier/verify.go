@@ -17,6 +17,7 @@ import (
 
 // Verifier checks bundles against a policy.
 type Verifier struct {
+	// Policy is the policy New checked; changing it afterwards has no effect.
 	Policy   *Policy
 	Profiles map[string]Profile
 	TSAs     []TSA                 // trusted, from the policy
@@ -26,12 +27,19 @@ type Verifier struct {
 	DistrustedDrand map[string]bool // by chain hash
 	// Now is the verification time; nil means time.Now.
 	Now func() time.Time
+
+	predicateTypes map[string]predicateType
+}
+
+type predicateType struct {
+	PredicatePolicy
+	profiles map[string]ProfilePolicy // only of profiles with trustedSigners entries
 }
 
 // New makes a verifier for policy, with the profiles it may use, and checks the policy against them.
 func New(policy *Policy, profiles ...Profile) (*Verifier, error) {
 	v := &Verifier{Policy: policy, Profiles: map[string]Profile{}, Drand: map[string]DrandChain{},
-		DistrustedDrand: map[string]bool{}}
+		DistrustedDrand: map[string]bool{}, predicateTypes: map[string]predicateType{}}
 	for _, p := range profiles {
 		v.Profiles[p.Name()] = p
 	}
@@ -78,15 +86,21 @@ func New(policy *Policy, profiles ...Profile) (*Verifier, error) {
 				return nil, fmt.Errorf("policy: %s: unknown profile %q", t, name)
 			}
 		}
+		pt := predicateType{PredicatePolicy: pp, profiles: map[string]ProfilePolicy{}}
 		for name, p := range v.Profiles {
 			entries, err := pp.signersFor(name)
 			if err != nil {
 				return nil, err
 			}
-			if err := p.CheckPolicy(entries, pp.Profiles[name]); err != nil {
+			parsed, err := p.CheckPolicy(entries, pp.Profiles[name])
+			if err != nil {
 				return nil, fmt.Errorf("policy: %s: %w", t, err)
 			}
+			if len(entries) > 0 {
+				pt.profiles[name] = parsed
+			}
 		}
+		v.predicateTypes[t] = pt
 	}
 	return v, nil
 }
@@ -97,7 +111,8 @@ type Result struct {
 	SignedStatementID string     `json:"signedStatementId"` // hex
 	Statement         *Statement `json:"statement"`
 	Profile           string     `json:"profile"`
-	Key               *Key       `json:"key,omitzero"`
+	// Key is also set when the key failed its checks at the upper time bound: it alone doesn't mean verified.
+	Key *Key `json:"key,omitzero"`
 	// Timestamp is the earliest of the statement's own accepted time-stamps, if any, and TSA its authority.
 	Timestamp *time.Time `json:"timestamp,omitzero"`
 	TSA       string     `json:"tsa,omitzero"`
@@ -455,26 +470,22 @@ func (v *Verifier) startedAfter(n *Result, st *Statement) error {
 // policy applies the policy to a node whose own evidence of time passed (spec section 5, step 3).
 func (v *Verifier) policy(n *Result, now time.Time) error {
 	st := n.Statement
-	pp, ok := v.Policy.PredicateTypes[st.PredicateType]
+	pt, ok := v.predicateTypes[st.PredicateType]
 	if !ok {
 		return fmt.Errorf("predicate type %s is not in the policy", st.PredicateType)
 	}
-	n.pp = pp
+	n.pp = pt.PredicatePolicy
 	profile := v.Profiles[n.Profile]
-	trusted, err := pp.signersFor(n.Profile)
-	if err != nil {
-		return err
-	}
-	if len(trusted) == 0 {
+	parsed, ok := pt.profiles[n.Profile]
+	if !ok {
 		return fmt.Errorf("the policy trusts no %s signers for %s", n.Profile, st.PredicateType)
 	}
-	settings := pp.Profiles[n.Profile]
 
 	// Time (spec section 4).
-	if pp.RequireTimestamp && n.NotAfter.IsZero() {
+	if pt.RequireTimestamp && n.NotAfter.IsZero() {
 		return errors.New("a time-stamp is required, on it or on a statement made from it")
 	}
-	if pp.RequireStartedAfter && n.NotBefore.IsZero() {
+	if pt.RequireStartedAfter && n.NotBefore.IsZero() {
 		return errors.New("startedAfter is required, in it or in one of its inputs")
 	}
 	upper := n.NotAfter
@@ -488,7 +499,7 @@ func (v *Verifier) policy(n *Result, now time.Time) error {
 	// Every copy must pass every check, at the same upper bound: copies share the statement, key binding and
 	// signature, but not the rest of their key evidence (on Android, the certificates above the leaf).
 	for _, b := range n.bundles {
-		key, err := profile.VerifyKey(b.VerificationMaterial.Key.Raw, trusted, settings, now)
+		key, err := profile.VerifyKey(b.VerificationMaterial.Key.Raw, parsed, now)
 		if err != nil {
 			return err
 		}
@@ -500,6 +511,7 @@ func (v *Verifier) policy(n *Result, now time.Time) error {
 			return err
 		}
 		if err := checkKeyAt(key, upper, !n.NotAfter.IsZero()); err != nil {
+			n.Key = key
 			return err
 		}
 		if n.Key == nil {

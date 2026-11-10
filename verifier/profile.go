@@ -10,14 +10,17 @@ import (
 type Profile interface {
 	Name() string
 	// CheckPolicy validates a predicate type's trustedSigners entries for this profile and its settings (nil:
-	// defaults), so mistakes surface before any bundle is checked.
-	CheckPolicy(trusted []jsontext.Value, settings jsontext.Value) error
+	// defaults), so mistakes surface before any bundle is checked. It returns them parsed, for VerifyKey.
+	CheckPolicy(trusted []jsontext.Value, settings jsontext.Value) (ProfilePolicy, error)
 	// Binding returns the evidence's key binding (spec section 2), exactly as carried, without verifying it.
 	Binding(evidence jsontext.Value) ([]byte, error)
-	// VerifyKey checks evidence under settings, at verification time now, and that it names a signer one of
-	// trusted accepts.
-	VerifyKey(evidence jsontext.Value, trusted []jsontext.Value, settings jsontext.Value, now time.Time) (*Key, error)
+	// VerifyKey checks evidence under policy, which this profile's CheckPolicy returned, at verification time now,
+	// and that it names a signer the policy accepts.
+	VerifyKey(evidence jsontext.Value, policy ProfilePolicy, now time.Time) (*Key, error)
 }
+
+// ProfilePolicy is a profile's parsed part of a predicate type's policy; only that profile reads it.
+type ProfilePolicy any
 
 // Key is what a profile established about a signing key.
 type Key struct {

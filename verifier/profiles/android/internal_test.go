@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json/jsontext"
+	"fmt"
 	"math/big"
 	"net/http"
 	"os"
@@ -154,8 +156,58 @@ func TestSettingsRanges(t *testing.T) {
 		`{"minOsVersion": -1}`: false, `{"maxPatchAgeMonths": 0}`: true, `{"maxPatchAgeMonths": 1200}`: true,
 		`{"maxPatchAgeMonths": -1}`: false, `{"maxPatchAgeMonths": 1201}`: false,
 	} {
-		if err := p.CheckPolicy(nil, []byte(raw)); (err == nil) != ok {
+		if _, err := p.CheckPolicy(nil, []byte(raw)); (err == nil) != ok {
 			t.Errorf("%s: ok %v, err %v", raw, ok, err)
+		}
+	}
+}
+
+func TestOverlappingSignersAreErrors(t *testing.T) {
+	const c1, c2 = "d66a722561948c23fca5f90a758008dc4b2a11100db466e75e58d4f3ee4ffb99",
+		"0000000000000000000000000000000000000000000000000000000000000001"
+	entry := func(pkg string, certs, versions string) []byte {
+		return fmt.Appendf(nil, `{"profile": "android", "package": %q, "signingCertificates": %s%s}`, pkg, certs, versions)
+	}
+	p := New(&Trust{BootKeyLists: map[string]*BootKeyList{"grapheneos": {}}})
+	for name, c := range map[string]struct {
+		a, b    []byte
+		wantErr bool
+	}{
+		"same, any version":       {entry("x", `["`+c1+`"]`, ""), entry("x", `["`+c1+`"]`, ""), true},
+		"any version and some":    {entry("x", `["`+c1+`"]`, ""), entry("x", `["`+c1+`"]`, `, "versionCodes": [15]`), true},
+		"other versions":          {entry("x", `["`+c1+`"]`, `, "versionCodes": [15]`), entry("x", `["`+c1+`"]`, `, "versionCodes": [16]`), true},
+		"a certificate in common": {entry("x", `["`+c1+`", "`+c2+`"]`, ""), entry("x", `["`+c2+`"]`, ""), true},
+		"other package":           {entry("x", `["`+c1+`"]`, ""), entry("y", `["`+c1+`"]`, ""), false},
+		"other certificates":      {entry("x", `["`+c1+`"]`, `, "versionCodes": [15]`), entry("x", `["`+c2+`"]`, `, "versionCodes": [15]`), false},
+	} {
+		_, err := p.CheckPolicy([]jsontext.Value{c.a, c.b}, nil)
+		if (err != nil) != c.wantErr {
+			t.Errorf("%s: error %v, want an error %v", name, err, c.wantErr)
+		}
+	}
+}
+
+func TestVersionEndTimeErrors(t *testing.T) {
+	const entry = `{"profile": "android", "package": "x", "signingCertificates": ["` +
+		"d66a722561948c23fca5f90a758008dc4b2a11100db466e75e58d4f3ee4ffb99" + `"], "versionCodes": [0, 1], "versionEndTimes": %s}`
+	for ends, want := range map[string]string{
+		`[]`:                                    "versionEndTimes is empty",
+		`[{"endTime": 1}]`:                      "needs a versionCode and an endTime",
+		`[{"versionCode": 1}]`:                  "needs a versionCode and an endTime",
+		`[{"versionCode": 1, "endTime": null}]`: "needs a versionCode and an endTime",
+		`[{"versionCode": 2, "endTime": 1}]`:    "versionCode 2, which isn't in versionCodes",
+		`[{"versionCode": 1, "endTime": 1}, {"versionCode": 1, "endTime": 2}]`: "versionCode 1 twice",
+		`[{"versionCode": 1, "endTime": 0}]`:                                   "endTime 0 of versionCode 1 isn't from 1 to 253402300799",
+		`[{"versionCode": 1, "endTime": 253402300800}]`:                        "endTime 253402300800 of versionCode 1 isn't from 1",
+		`[{"versionCode": 0, "endTime": 253402300799}]`:                        "",
+		`[{"versionCode": 0, "endTime": 1}, {"versionCode": 1, "endTime": 1}]`: "",
+	} {
+		_, err := parseSigner([]byte(fmt.Sprintf(entry, ends)))
+		switch {
+		case want == "" && err != nil:
+			t.Errorf("%s: %v", ends, err)
+		case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
+			t.Errorf("%s: got %v, want an error with %q", ends, err, want)
 		}
 	}
 }

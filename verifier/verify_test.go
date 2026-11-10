@@ -24,6 +24,7 @@ const testSigner = "d66a722561948c23fca5f90a758008dc4b2a11100db466e75e58d4f3ee4f
 type policyParams struct {
 	signingCertificate  string
 	versionCodes        string // JSON array, or "" for any
+	versionEndTimes     string // JSON array, or "" for none
 	requireTimestamp    bool
 	requireStartedAfter bool
 	androidSettings     string // the capture type's, JSON object, or "" for defaults
@@ -44,6 +45,9 @@ func (p policyParams) policy(t *testing.T) *verifier.Policy {
 		versions := ""
 		if p.versionCodes != "" {
 			versions = `, "versionCodes": ` + p.versionCodes
+		}
+		if p.versionEndTimes != "" {
+			versions += `, "versionEndTimes": ` + p.versionEndTimes
 		}
 		settings := ""
 		if p.androidSettings != "" {
@@ -137,6 +141,48 @@ func verifyCapture(v *verifier.Verifier, raw []byte) (*verifier.Result, error) {
 	return r, httpresponse.CheckResponse(r.Statement, p, resp)
 }
 
+// A version's end time rejects statements whose upper bound is at or after it, and the key's description, also in
+// a rejected result, gives it.
+func TestVersionEndTimeBoundary(t *testing.T) {
+	_, b, err := verifier.ParseHTTPResponse(readCapture(t, "example.http"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := mustVerifier(t, defaultParams().policy(t), testTrust(t)).Verify(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upper := r.NotAfter.Unix()
+	for end, accepted := range map[int64]bool{upper: false, upper + 1: true} {
+		p := defaultParams()
+		p.versionEndTimes = fmt.Sprintf(`[{"versionCode": 1, "endTime": %d}]`, end)
+		r, err := mustVerifier(t, p.policy(t), testTrust(t)).Verify(b)
+		if (err == nil) != accepted {
+			t.Errorf("end time %d, upper bound %v: accepted %v, want %v (%v)", end, r.NotAfter, err == nil, accepted, err)
+			continue
+		}
+		endTime := time.Unix(end, 0).UTC()
+		if err != nil && !strings.Contains(err.Error(), "not before "+endTime.String()) {
+			t.Errorf("end time %d: the error doesn't name it: %v", end, err)
+		}
+		if err == nil && !r.Key.AcceptedUntil.Equal(endTime) {
+			t.Errorf("end time %d: accepted until %v", end, r.Key.AcceptedUntil)
+		}
+		until := endTime.Format("2006-01-02 15:04:05 MST")
+		if r.Key == nil || !strings.Contains(r.Key.Description[0], ", accepted until "+until) {
+			t.Errorf("end time %d: the result's key doesn't give it: %+v", end, r.Key)
+		}
+	}
+}
+
+func TestPolicyChangedAfterNewHasNoEffect(t *testing.T) {
+	v := mustVerifier(t, defaultParams().policy(t), testTrust(t))
+	v.Policy.PredicateTypes = nil
+	if _, err := verifyCapture(v, readCapture(t, "example.http")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCapturesVerify(t *testing.T) {
 	v := mustVerifier(t, defaultParams().policy(t), testTrust(t))
 	names := []string{"example.http", "redirect.http"}
@@ -159,6 +205,9 @@ func TestCapturesVerify(t *testing.T) {
 		}
 		if app.Package != capturePackage || app.VersionCode != 1 {
 			t.Errorf("%s: app %+v", name, app)
+		}
+		if !strings.Contains(r.Key.Description[1], ", OS patch level accepted until ") {
+			t.Errorf("%s: the description doesn't say until when the patch level is accepted: %q", name, r.Key.Description[1])
 		}
 		_, b, _ := verifier.ParseHTTPResponse(readCapture(t, name))
 		sizes[b.VerificationMaterial.Timestamp.Tree.Size] = true
@@ -445,6 +494,8 @@ func TestPolicyMistakesAreErrors(t *testing.T) {
 		"array settings":           head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": []}}}}`,
 		"zero list age":            head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": {"maxListAgeHours": 0}}}}}`,
 		"no OS accepted":           head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": {"os": {"stock": false, "bootKeyLists": []}}}}}}`,
+		"end of unlisted version":  head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 2, "endTime": 1}]}]}}}`,
+		"overlapping entries":      head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `, {"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 1, "endTime": 1}]}]}}}`,
 	} {
 		p, err := verifier.ParsePolicy([]byte(raw))
 		if err == nil {
