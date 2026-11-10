@@ -34,6 +34,15 @@ type Signer struct {
 	Package             string   `json:"package"`
 	SigningCertificates []string `json:"signingCertificates"`
 	VersionCodes        []int64  `json:"versionCodes,omitzero"`
+	// VersionEndTimes ends the acceptance of some listed versions: statements whose upper bound is at or after
+	// EndTime (Unix seconds) are rejected.
+	VersionEndTimes []VersionEndTime `json:"versionEndTimes,omitzero"`
+}
+
+// VersionEndTime is when the policy stops accepting statements of one listed version.
+type VersionEndTime struct {
+	VersionCode int64 `json:"versionCode"`
+	EndTime     int64 `json:"endTime"`
 }
 
 // Settings are the policy's "android" profile settings.
@@ -170,6 +179,15 @@ func parseSigner(raw jsontext.Value) (*Signer, error) {
 	if s.VersionCodes != nil && len(s.VersionCodes) == 0 {
 		return nil, errors.New("android signer: versionCodes is empty (leave it out to accept any version)")
 	}
+	ended := map[int64]bool{}
+	for _, e := range s.VersionEndTimes {
+		if !slices.Contains(s.VersionCodes, e.VersionCode) || ended[e.VersionCode] || e.EndTime < 1 ||
+			e.EndTime > verifier.MaxJSONInteger {
+			return nil, fmt.Errorf("android signer: versionEndTimes entry for %d must name a listed versionCode once, "+
+				"with an endTime of at least 1", e.VersionCode)
+		}
+		ended[e.VersionCode] = true
+	}
 	for i, c := range s.SigningCertificates {
 		c = strings.ToLower(strings.ReplaceAll(c, ":", ""))
 		if b, err := hex.DecodeString(c); err != nil || len(b) != 32 {
@@ -257,7 +275,7 @@ func (p *Profile) VerifyKey(raw jsontext.Value, trusted []jsontext.Value, settin
 	if err != nil {
 		return nil, err
 	}
-	app, err := checkApp(kd, trusted)
+	app, endTime, err := checkApp(kd, trusted)
 	if err != nil {
 		return nil, err
 	}
@@ -274,6 +292,9 @@ func (p *Profile) VerifyKey(raw jsontext.Value, trusted []jsontext.Value, settin
 		// Accepted while the upper bound's month is at most n months after the patch level's (checkDevice has
 		// checked it is present and well-formed).
 		key.AcceptedUntil = monthStart(patchMonth(dev.OSPatchLevel), int(n)+1)
+	}
+	if !endTime.IsZero() && (key.AcceptedUntil.IsZero() || endTime.Before(key.AcceptedUntil)) {
+		key.AcceptedUntil = endTime
 	}
 	for _, c := range all {
 		if c.NotBefore.After(key.ValidFrom) {
@@ -422,10 +443,12 @@ func (p *Profile) checkDevice(kd *KeyDescription, ci *chainInfo, s *Settings, no
 	return d, nil
 }
 
-func checkApp(kd *KeyDescription, trusted []jsontext.Value) (*App, error) {
+// checkApp returns the app the attestation names, if an entry of trusted accepts it, and when that entry stops
+// accepting its version (zero: never).
+func checkApp(kd *KeyDescription, trusted []jsontext.Value) (*App, time.Time, error) {
 	id := kd.Software.ApplicationID
 	if id == nil || len(id.Packages) != 1 || len(id.SignatureDigests) == 0 {
-		return nil, errors.New("the attestation doesn't name exactly one app and its signing certificates")
+		return nil, time.Time{}, errors.New("the attestation doesn't name exactly one app and its signing certificates")
 	}
 	pkg := id.Packages[0]
 	app := &App{Package: pkg.Name, VersionCode: pkg.VersionCode}
@@ -436,7 +459,7 @@ func checkApp(kd *KeyDescription, trusted []jsontext.Value) (*App, error) {
 	for _, raw := range trusted {
 		s, err := parseSigner(raw)
 		if err != nil {
-			return nil, err
+			return nil, time.Time{}, err
 		}
 		if s.Package != pkg.Name {
 			continue
@@ -451,10 +474,20 @@ func checkApp(kd *KeyDescription, trusted []jsontext.Value) (*App, error) {
 		case len(s.VersionCodes) > 0 && !slices.Contains(s.VersionCodes, pkg.VersionCode):
 			reason = fmt.Errorf("%s versionCode %d is not one the policy accepts", pkg.Name, pkg.VersionCode)
 		default:
-			return app, nil
+			return app, endTimeOf(s, pkg.VersionCode), nil
 		}
 	}
-	return nil, reason
+	return nil, time.Time{}, reason
+}
+
+// endTimeOf is when s stops accepting versionCode (zero: never).
+func endTimeOf(s *Signer, versionCode int64) time.Time {
+	for _, e := range s.VersionEndTimes {
+		if e.VersionCode == versionCode {
+			return time.Unix(e.EndTime, 0).UTC()
+		}
+	}
+	return time.Time{}
 }
 
 // patchMonth is an attested patch level's YYYYMM, from YYYYMM or YYYYMMDD; 0 if it is neither, or its month isn't

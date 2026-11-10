@@ -3,6 +3,12 @@
 Each release has a section `## <version> (<date>)`, used as its release notes. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- Android profile: a `trustedSigners` entry can end the acceptance of some of its `versionCodes` with
+  `versionEndTimes`, to retire a version on a date known in advance: a statement of that version is accepted only if
+  its upper time bound is before the end time.
+
 ## 0.2.0 (2026-11-07)
 
 - Android profile: new settings `minOsVersion` (default 140000, Android 14) and `maxPatchAgeMonths` (default 6),

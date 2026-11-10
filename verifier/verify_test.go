@@ -24,6 +24,7 @@ const testSigner = "d66a722561948c23fca5f90a758008dc4b2a11100db466e75e58d4f3ee4f
 type policyParams struct {
 	signingCertificate  string
 	versionCodes        string // JSON array, or "" for any
+	versionEndTimes     string // JSON array, or "" for none
 	requireTimestamp    bool
 	requireStartedAfter bool
 	androidSettings     string // the capture type's, JSON object, or "" for defaults
@@ -44,6 +45,9 @@ func (p policyParams) policy(t *testing.T) *verifier.Policy {
 		versions := ""
 		if p.versionCodes != "" {
 			versions = `, "versionCodes": ` + p.versionCodes
+		}
+		if p.versionEndTimes != "" {
+			versions += `, "versionEndTimes": ` + p.versionEndTimes
 		}
 		settings := ""
 		if p.androidSettings != "" {
@@ -135,6 +139,18 @@ func verifyCapture(v *verifier.Verifier, raw []byte) (*verifier.Result, error) {
 		return nil, err
 	}
 	return r, httpresponse.CheckResponse(r.Statement, p, resp)
+}
+
+func TestVersionEndingAfterTheTimeStampIsAccepted(t *testing.T) {
+	p := defaultParams()
+	p.versionEndTimes = `[{"versionCode": 1, "endTime": 1798761600}]` // 2027-01-01, after the capture
+	r, err := verifyCapture(mustVerifier(t, p.policy(t), testTrust(t)), readCapture(t, "example.http"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Unix(1798761600, 0).UTC(); !r.Key.AcceptedUntil.Equal(want) {
+		t.Errorf("accepted until %v, want the version's end time %v", r.Key.AcceptedUntil, want)
+	}
 }
 
 func TestCapturesVerify(t *testing.T) {
@@ -252,6 +268,9 @@ func TestCaptureTampering(t *testing.T) {
 		"statement from other capture": {raw: replace(example, header(example, "Attested-Statement"), header(redirect, "Attested-Statement"))},
 		"signer not trusted":           {raw: example, params: params(func(p *policyParams) { p.signingCertificate = strings.Repeat("ab", 32) })},
 		"version not accepted":         {raw: example, params: params(func(p *policyParams) { p.versionCodes = "[17]" })},
+		"version ended before stamped": {raw: example, params: params(func(p *policyParams) {
+			p.versionEndTimes = `[{"versionCode": 1, "endTime": 1767225600}]` // 2026-01-01, before the capture
+		})},
 		"predicate type not in policy": {raw: example, params: params(func(p *policyParams) {
 			p.noCaptureType = true
 			p.extraTypes = `"urn:x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"]}]}`
@@ -445,6 +464,9 @@ func TestPolicyMistakesAreErrors(t *testing.T) {
 		"array settings":           head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": []}}}}`,
 		"zero list age":            head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": {"maxListAgeHours": 0}}}}}`,
 		"no OS accepted":           head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `], "profiles": {"android": {"os": {"stock": false, "bootKeyLists": []}}}}}}`,
+		"end of unlisted version":  head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 2, "endTime": 1}]}]}}}`,
+		"version ended twice":      head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 1, "endTime": 1}, {"versionCode": 1, "endTime": 2}]}]}}}`,
+		"zero end time":            head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 1, "endTime": 0}]}]}}}`,
 	} {
 		p, err := verifier.ParsePolicy([]byte(raw))
 		if err == nil {
