@@ -145,9 +145,10 @@ An entry with `versionCodes` MAY end the acceptance of some of them, to retire a
 
 `endTime` is Unix seconds. A statement signed by a listed version with an end time is accepted only if its upper
 bound (core spec section 4) is before that time. Nobody can get a time-stamp in the past, so an old app can't make
-such a statement after its end time, while the statements it made before stay accepted. Each `versionCode` in
-`versionEndTimes` MUST be in `versionCodes` and appear once, and `endTime` MUST be at least 1; anything else is a
-policy error. To stop accepting a version's statements made at any time, leave it out of `versionCodes`.
+such a statement after its end time, while the statements it made before stay accepted. `versionEndTimes` MUST NOT
+be empty, and each of its entries MUST have both members; each `versionCode` in it MUST be in `versionCodes` and
+appear once, and each `endTime` MUST be from 1 to 2⁵³ − 1. Anything else is a policy error. To stop accepting a
+version's statements made at any time, leave it out of `versionCodes`.
 
 Settings go under `profiles.android` of each predicate type (core spec section 5):
 

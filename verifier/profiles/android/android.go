@@ -37,10 +37,10 @@ type Signer struct {
 	VersionEndTimes     []VersionEndTime `json:"versionEndTimes,omitzero"`
 }
 
-// VersionEndTime is when the policy stops accepting statements of one listed version.
+// VersionEndTime is when the policy stops accepting statements of one listed version. Both members are required.
 type VersionEndTime struct {
-	VersionCode int64 `json:"versionCode"`
-	EndTime     int64 `json:"endTime"`
+	VersionCode *int64 `json:"versionCode"`
+	EndTime     *int64 `json:"endTime"` // Unix seconds
 }
 
 // Settings are the policy's "android" profile settings.
@@ -177,14 +177,22 @@ func parseSigner(raw jsontext.Value) (*Signer, error) {
 	if s.VersionCodes != nil && len(s.VersionCodes) == 0 {
 		return nil, errors.New("android signer: versionCodes is empty (leave it out to accept any version)")
 	}
-	versionsWithEndTime := map[int64]bool{}
-	for _, e := range s.VersionEndTimes {
-		if !slices.Contains(s.VersionCodes, e.VersionCode) || versionsWithEndTime[e.VersionCode] || e.EndTime < 1 ||
-			e.EndTime > verifier.MaxJSONInteger {
-			return nil, fmt.Errorf("android signer: versionEndTimes entry for %d must name a listed versionCode once, "+
-				"with an endTime of at least 1", e.VersionCode)
+	if s.VersionEndTimes != nil && len(s.VersionEndTimes) == 0 {
+		return nil, errors.New("android signer: versionEndTimes is empty (leave it out to end no version)")
+	}
+	for i, e := range s.VersionEndTimes {
+		if e.VersionCode == nil || e.EndTime == nil {
+			return nil, errors.New("android signer: every versionEndTimes entry needs a versionCode and an endTime")
 		}
-		versionsWithEndTime[e.VersionCode] = true
+		v, end := *e.VersionCode, *e.EndTime
+		switch {
+		case !slices.Contains(s.VersionCodes, v):
+			return nil, fmt.Errorf("android signer: versionEndTimes names versionCode %d, which isn't in versionCodes", v)
+		case slices.ContainsFunc(s.VersionEndTimes[:i], func(f VersionEndTime) bool { return *f.VersionCode == v }):
+			return nil, fmt.Errorf("android signer: versionEndTimes names versionCode %d twice", v)
+		case end < 1 || end > verifier.MaxJSONInteger:
+			return nil, fmt.Errorf("android signer: the endTime %d of versionCode %d isn't from 1 to 2^53 - 1", end, v)
+		}
 	}
 	for i, c := range s.SigningCertificates {
 		c = strings.ToLower(strings.ReplaceAll(c, ":", ""))
@@ -512,8 +520,8 @@ func checkApp(kd *KeyDescription, trusted []*Signer) (*App, *Signer, error) {
 // endTimeOf is when s stops accepting versionCode (zero: never).
 func (s *Signer) endTimeOf(versionCode int64) time.Time {
 	for _, e := range s.VersionEndTimes {
-		if e.VersionCode == versionCode {
-			return time.Unix(e.EndTime, 0).UTC()
+		if *e.VersionCode == versionCode {
+			return time.Unix(*e.EndTime, 0).UTC()
 		}
 	}
 	return time.Time{}

@@ -468,6 +468,11 @@ func TestPolicyMistakesAreErrors(t *testing.T) {
 		"version ended twice":      head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 1, "endTime": 1}, {"versionCode": 1, "endTime": 2}]}]}}}`,
 		"zero end time":            head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 1, "endTime": 0}]}]}}}`,
 		"overlapping entries":      head + `"predicateTypes": {"x": {"trustedSigners": [` + signer + `, {"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 1, "endTime": 1}]}]}}}`,
+		"no end times":             head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": []}]}}}`,
+		"end time without version": head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [0, 1], "versionEndTimes": [{"endTime": 1}]}]}}}`,
+		"version without end time": head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 1}]}]}}}`,
+		"null end time":            head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 1, "endTime": null}]}]}}}`,
+		"end time too large":       head + `"predicateTypes": {"x": {"trustedSigners": [{"profile": "android", "package": "x", "signingCertificates": ["` + testSigner + `"], "versionCodes": [1], "versionEndTimes": [{"versionCode": 1, "endTime": 9007199254740992}]}]}}}`,
 	} {
 		p, err := verifier.ParsePolicy([]byte(raw))
 		if err == nil {
