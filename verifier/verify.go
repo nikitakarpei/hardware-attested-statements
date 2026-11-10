@@ -26,12 +26,20 @@ type Verifier struct {
 	DistrustedDrand map[string]bool // by chain hash
 	// Now is the verification time; nil means time.Now.
 	Now func() time.Time
+
+	// profilePolicies are the profiles' parsed parts of the policy, by predicate type and profile name.
+	profilePolicies map[string]map[string]profilePolicy
+}
+
+type profilePolicy struct {
+	signers int // how many trustedSigners entries are for the profile
+	parsed  ProfilePolicy
 }
 
 // New makes a verifier for policy, with the profiles it may use, and checks the policy against them.
 func New(policy *Policy, profiles ...Profile) (*Verifier, error) {
 	v := &Verifier{Policy: policy, Profiles: map[string]Profile{}, Drand: map[string]DrandChain{},
-		DistrustedDrand: map[string]bool{}}
+		DistrustedDrand: map[string]bool{}, profilePolicies: map[string]map[string]profilePolicy{}}
 	for _, p := range profiles {
 		v.Profiles[p.Name()] = p
 	}
@@ -78,14 +86,17 @@ func New(policy *Policy, profiles ...Profile) (*Verifier, error) {
 				return nil, fmt.Errorf("policy: %s: unknown profile %q", t, name)
 			}
 		}
+		v.profilePolicies[t] = map[string]profilePolicy{}
 		for name, p := range v.Profiles {
 			entries, err := pp.signersFor(name)
 			if err != nil {
 				return nil, err
 			}
-			if err := p.CheckPolicy(entries, pp.Profiles[name]); err != nil {
+			parsed, err := p.CheckPolicy(entries, pp.Profiles[name])
+			if err != nil {
 				return nil, fmt.Errorf("policy: %s: %w", t, err)
 			}
+			v.profilePolicies[t][name] = profilePolicy{signers: len(entries), parsed: parsed}
 		}
 	}
 	return v, nil
@@ -461,14 +472,13 @@ func (v *Verifier) policy(n *Result, now time.Time) error {
 	}
 	n.pp = pp
 	profile := v.Profiles[n.Profile]
-	trusted, err := pp.signersFor(n.Profile)
-	if err != nil {
-		return err
+	parsed, ok := v.profilePolicies[st.PredicateType][n.Profile]
+	if !ok {
+		return fmt.Errorf("the policy for %s wasn't checked for the %s profile (make the verifier with New)", st.PredicateType, n.Profile)
 	}
-	if len(trusted) == 0 {
+	if parsed.signers == 0 {
 		return fmt.Errorf("the policy trusts no %s signers for %s", n.Profile, st.PredicateType)
 	}
-	settings := pp.Profiles[n.Profile]
 
 	// Time (spec section 4).
 	if pp.RequireTimestamp && n.NotAfter.IsZero() {
@@ -488,7 +498,7 @@ func (v *Verifier) policy(n *Result, now time.Time) error {
 	// Every copy must pass every check, at the same upper bound: copies share the statement, key binding and
 	// signature, but not the rest of their key evidence (on Android, the certificates above the leaf).
 	for _, b := range n.bundles {
-		key, err := profile.VerifyKey(b.VerificationMaterial.Key.Raw, trusted, settings, now)
+		key, err := profile.VerifyKey(b.VerificationMaterial.Key.Raw, parsed.parsed, now)
 		if err != nil {
 			return err
 		}

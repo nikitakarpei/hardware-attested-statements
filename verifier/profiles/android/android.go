@@ -196,14 +196,27 @@ func parseSigner(raw jsontext.Value) (*Signer, error) {
 	return &s, nil
 }
 
-func (p *Profile) CheckPolicy(trusted []jsontext.Value, settings jsontext.Value) error {
+// policy is the profile's parsed part of a predicate type's policy.
+type policy struct {
+	signers  []*Signer
+	settings *Settings
+}
+
+func (p *Profile) CheckPolicy(trusted []jsontext.Value, settings jsontext.Value) (verifier.ProfilePolicy, error) {
+	pol := &policy{}
 	for _, raw := range trusted {
-		if _, err := parseSigner(raw); err != nil {
-			return err
+		s, err := parseSigner(raw)
+		if err != nil {
+			return nil, err
 		}
+		pol.signers = append(pol.signers, s)
 	}
-	_, err := p.settings(settings)
-	return err
+	s, err := p.settings(settings)
+	if err != nil {
+		return nil, err
+	}
+	pol.settings = s
+	return pol, nil
 }
 
 func parseEvidence(raw jsontext.Value) ([]*x509.Certificate, error) {
@@ -235,11 +248,12 @@ func (p *Profile) Binding(raw jsontext.Value) ([]byte, error) {
 	return chain[0].RawTBSCertificate, nil
 }
 
-func (p *Profile) VerifyKey(raw jsontext.Value, trusted []jsontext.Value, settings jsontext.Value, now time.Time) (*verifier.Key, error) {
-	s, err := p.settings(settings)
-	if err != nil {
-		return nil, err
+func (p *Profile) VerifyKey(raw jsontext.Value, parsed verifier.ProfilePolicy, now time.Time) (*verifier.Key, error) {
+	pol, ok := parsed.(*policy)
+	if !ok {
+		return nil, fmt.Errorf("android: the policy is a %T, not one CheckPolicy returned", parsed)
 	}
+	s := pol.settings
 	chain, err := parseEvidence(raw)
 	if err != nil {
 		return nil, err
@@ -273,7 +287,7 @@ func (p *Profile) VerifyKey(raw jsontext.Value, trusted []jsontext.Value, settin
 	if err != nil {
 		return nil, err
 	}
-	app, signer, err := checkApp(kd, trusted)
+	app, signer, err := checkApp(kd, pol.signers)
 	if err != nil {
 		return nil, err
 	}
@@ -442,7 +456,7 @@ func (p *Profile) checkDevice(kd *KeyDescription, ci *chainInfo, s *Settings, no
 	return d, nil
 }
 
-func checkApp(kd *KeyDescription, trusted []jsontext.Value) (*App, *Signer, error) {
+func checkApp(kd *KeyDescription, trusted []*Signer) (*App, *Signer, error) {
 	id := kd.Software.ApplicationID
 	if id == nil || len(id.Packages) != 1 || len(id.SignatureDigests) == 0 {
 		return nil, nil, errors.New("the attestation doesn't name exactly one app and its signing certificates")
@@ -453,11 +467,7 @@ func checkApp(kd *KeyDescription, trusted []jsontext.Value) (*App, *Signer, erro
 		app.SigningCertificates = append(app.SigningCertificates, hex.EncodeToString(d))
 	}
 	var reason error = fmt.Errorf("app %s is not trusted for this predicate type", pkg.Name)
-	for _, raw := range trusted {
-		s, err := parseSigner(raw)
-		if err != nil {
-			return nil, nil, err
-		}
+	for _, s := range trusted {
 		if s.Package != pkg.Name {
 			continue
 		}
