@@ -3,7 +3,7 @@
 Each release has a section `## <version> (<date>)`, used as its release notes. Versions follow
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.3.0 (2026-11-10)
 
 - Android profile: a `trustedSigners` entry can end the acceptance of some of its `versionCodes` with
   `versionEndTimes`, to retire a version on a date known in advance: a statement of that version is accepted only if
