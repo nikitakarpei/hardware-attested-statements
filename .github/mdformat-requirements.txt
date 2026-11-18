@@ -8,8 +8,9 @@ mdformat-gfm==1.0.0 \
     --hash=sha256:7305a50efd2a140d7c83505b58e3ac5df2b09e293f9bbe72f6c7bee8c678b005
 mdformat-tables==1.0.0 \
     --hash=sha256:94cd86126141b2adc3b04c08d1441eb1272b36c39146bab078249a41c7240a9a
-mdit-py-plugins==0.6.1 \
-    --hash=sha256:214c82fb2ac524472ab6a5bcab1de80f73b50443e187f401bfd77efbc7c6481d
+mdit-py-plugins==0.7.0 \
+    --hash=sha256:26d2179227aaf4d1dc7acffe7a738cbd15cade6b5a61cff0a2cbf9fed93efede \
+    --hash=sha256:7f8e30403f3dd8bfe3afcdcbc6e61066d3f2e714167507b9c26eb385ec399353
 mdurl==0.1.2 \
     --hash=sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8
 wcwidth==0.9.4 \
